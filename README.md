@@ -22,7 +22,7 @@ Answer the questions.
 
 ``Enter the path to the image (or press Enter to generate one):`` **``myimage.png``**
 
-``Enter the path for the output video file (press Enter for default: myaudio.mp4):`` **``My Fantastic Video.mp4``**
+``Enter the path for the output video file (press Enter for default: myvideo.mp4):`` **``My Fantastic Video.mp4``**
 
 If you want anything to be automatatically generated, you will need the following environment variables set up on your operating system:
 
