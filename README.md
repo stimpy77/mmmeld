@@ -30,10 +30,11 @@ You don't have to be prompted.
 
 ```
 ❯ python .\imagevideo.py --help
-usage: imagevideo.py [-h] [--audio AUDIO] [--image IMAGE] [--output OUTPUT] [--text TEXT] [--image_description IMAGE_DESCRIPTION] [--openai-key OPENAI_KEY]
-                     [--elevenlabs-key ELEVENLABS_KEY]
+usage: imagevideo.py [-h] [--audio AUDIO] [--image IMAGE] [--output OUTPUT] [--text TEXT]
+                     [--image_description IMAGE_DESCRIPTION] [--bg-music BG_MUSIC] [--bg-music-volume BG_MUSIC_VOLUME]
+                     [--openai-key OPENAI_KEY] [--elevenlabs-key ELEVENLABS_KEY]
 
-Generate a video from audio and image, with options for text-to-speech and image generation.
+Generate a video from audio and image, with options for text-to-speech, image generation, and background music.
 
 options:
   -h, --help            show this help message and exit
@@ -43,6 +44,9 @@ options:
   --text TEXT           Text for speech generation (used if audio is 'generate').
   --image_description IMAGE_DESCRIPTION
                         Description for image generation (used if image is 'generate').
+  --bg-music BG_MUSIC   Path to background music file or YouTube URL.
+  --bg-music-volume BG_MUSIC_VOLUME
+                        Volume of background music (0.0 to 1.0). Default: 0.2
 
 API Keys:
   --openai-key OPENAI_KEY
@@ -54,11 +58,11 @@ Examples:
   Generate video from local audio and image files:
     python imagevideo.py --audio path/to/audio.mp3 --image path/to/image.png
 
-  Generate video with text-to-speech and generated image:
-    python imagevideo.py --audio generate --text "Hello, world!" --image generate --image_description "A sunny day"
+  Generate video with text-to-speech, generated image, and background music:
+    python imagevideo.py --audio generate --text "Hello, world!" --image generate --image_description "A sunny day" --bg-music path/to/music.mp3
 
-  Download YouTube audio and generate image:
-    python imagevideo.py --audio https://www.youtube.com/watch?v=dQw4w9WgXcQ --image generate
+  Download YouTube audio, generate image, and add background music from YouTube:
+    python imagevideo.py --audio https://www.youtube.com/watch?v=dQw4w9WgXcQ --image generate --bg-music https://www.youtube.com/watch?v=background_music_id
 
   Run interactively (no arguments):
     python imagevideo.py
