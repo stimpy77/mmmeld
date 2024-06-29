@@ -14,7 +14,15 @@ pip install openai pillow requests tqdm pytube elevenlabs yt-dlp
 python ./imagevideo.py
 ```
 
-Answer the questions. If you want anything to be automatatically generated, you will need the following environment variables set up on your operating system:
+Answer the questions. 
+
+> ``Enter the path to the audio file, YouTube video URL, or press Enter to generate speech:`` **``myaudio.wav``**
+
+> ``Enter the path to the image (or press Enter to generate one):`` **``myimage.png``**
+
+> ``Enter the path for the output video file (press Enter for default: myaudio.mp4):`` **``My Fantastic Video.mp4``**
+
+If you want anything to be automatatically generated, you will need the following environment variables set up on your operating system:
 
 - `OPENAI_API_KEY`: The API key to use OpenAI services such as GPT (text generation), DALL-E (image generation), and text-to-speech.
 - `ELEVENLABS_API_KEY` OR `XI_API_KEY`: The API key provided by ElevenLabs for text-to-speech. You can find it by clicking on your avatar on their web site. 

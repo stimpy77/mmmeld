@@ -266,7 +266,7 @@ def get_default_output_path(audio_path, title=None):
         if base_name.lower().endswith('audio'):
             base_name = base_name[:-5] + 'video'
     output = f"{base_name}.mp4"
-    print(f"Outputting: {output}")
+    # print(f"Outputting: {output}")
     return output
 
 def generate_title_from_text(text):
