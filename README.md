@@ -32,7 +32,7 @@ You don't have to be prompted.
 ❯ python .\imagevideo.py --help
 usage: imagevideo.py [-h] [--audio AUDIO] [--image IMAGE] [--output OUTPUT] [--text TEXT]
                      [--image_description IMAGE_DESCRIPTION] [--bg-music BG_MUSIC] [--bg-music-volume BG_MUSIC_VOLUME]
-                     [--openai-key OPENAI_KEY] [--elevenlabs-key ELEVENLABS_KEY]
+                     [--cleanup] [--autofill] [--openai-key OPENAI_KEY] [--elevenlabs-key ELEVENLABS_KEY]
 
 Generate a video from audio and image, with options for text-to-speech, image generation, and background music.
 
@@ -47,6 +47,8 @@ options:
   --bg-music BG_MUSIC   Path to background music file or YouTube URL.
   --bg-music-volume BG_MUSIC_VOLUME
                         Volume of background music (0.0 to 1.0). Default: 0.2
+  --cleanup             Clean up temporary files after video generation.
+  --autofill            Use defaults for all unspecified options, no prompts.
 
 API Keys:
   --openai-key OPENAI_KEY
