@@ -3,6 +3,8 @@ Creates a video consisting of an image and audio. Can produce speech from text i
 
 ## Installation:
 
+Install ffmpeg and ensure it is in your operating system's PATH. See: https://ffmpeg.org/
+
 Install Python and run the following command:
 
 ```bash
