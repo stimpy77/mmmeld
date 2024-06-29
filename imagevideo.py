@@ -30,6 +30,9 @@ Examples:
   Download YouTube audio, generate image, and add background music from YouTube:
     python imagevideo.py --audio https://www.youtube.com/watch?v=dQw4w9WgXcQ --image generate --bg-music https://www.youtube.com/watch?v=background_music_id
 
+  Generate video with specific ElevenLabs voice ID:
+    python imagevideo.py --audio generate --text "Hello, world!" --voice-id your_voice_id_here
+
   Run interactively (no arguments):
     python imagevideo.py
         """
@@ -45,14 +48,14 @@ Examples:
                         help=f"Volume of background music (0.0 to 1.0). Default: {DEFAULT_BG_MUSIC_VOLUME}")
     parser.add_argument("--cleanup", action="store_true", help="Clean up temporary files after video generation.")
     parser.add_argument("--autofill", action="store_true", help="Use defaults for all unspecified options, no prompts.")
+    parser.add_argument("--voice-id", help=f"ElevenLabs voice ID. Default: {ELEVENLABS_VOICE_ID}")
     
     # Add argument group for API keys
     api_group = parser.add_argument_group('API Keys')
     api_group.add_argument("--openai-key", help="OpenAI API key. Default: Use OPENAI_API_KEY environment variable.")
     api_group.add_argument("--elevenlabs-key", help="ElevenLabs API key. Default: Use ELEVENLABS_API_KEY environment variable.")
     
-    # Parse arguments without exiting on error
-    args, unknown = parser.parse_known_args()
+    args = parser.parse_args()
     
     # If --help is in sys.argv, print help and exit
     if "--help" in sys.argv or "-h" in sys.argv:
@@ -204,13 +207,15 @@ def download_youtube_audio(url):
     print(f"Audio downloaded: {output_filename}")
     return output_filename, sanitized_title, description
 
-def generate_speech_with_elevenlabs(text):
+def generate_speech_with_elevenlabs(text, voice_id=None):
     print("Generating speech with ElevenLabs...")
     api_key = os.environ.get("ELEVENLABS_API_KEY") or os.environ.get("XI_API_KEY")
     if not api_key:
         raise ValueError("ElevenLabs API key is not set.")
     
-    voice_id = input(f"Enter ElevenLabs voice ID, or press ENTER for default [{ELEVENLABS_VOICE_ID}]: ") or ELEVENLABS_VOICE_ID
+    if not voice_id:
+        voice_id = input(f"Enter ElevenLabs voice ID, or press ENTER for default [{ELEVENLABS_VOICE_ID}]: ") or ELEVENLABS_VOICE_ID
+    
     print(f"Using voice ID: {voice_id}")
     tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
     headers = {
@@ -257,12 +262,12 @@ def generate_speech_with_openai(text):
     
     return audio_filename, title, text
 
-def generate_speech(text):
+def generate_speech(text, voice_id=None):
     tts_provider = os.environ.get("TTS_PROVIDER", "elevenlabs").lower()
     
     if tts_provider == "elevenlabs":
         try:
-            return generate_speech_with_elevenlabs(text)
+            return generate_speech_with_elevenlabs(text, voice_id)
         except Exception as e:
             print(f"ElevenLabs TTS failed: {e}")
             print("Falling back to OpenAI TTS...")
@@ -466,11 +471,11 @@ def main():
         if args.audio == "generate":
             if not args.text:
                 if args.autofill:
-                    print("Error: Text for speech generation is required in auto-fill mode when audio is set to 'generate'.")
+                    print("Error: Text for speech generation is required in autofill mode when audio is set to 'generate'.")
                     sys.exit(1)
                 else:
                     args.text = get_multiline_input("Enter the text you want to convert to speech (press Enter twice to finish):")
-            audio_path, title, description = generate_speech(args.text)
+            audio_path, title, description = generate_speech(args.text, args.voice_id)
             files_to_cleanup.append(audio_path)
         elif os.path.isfile(args.audio):
             audio_path, title, description = args.audio, os.path.splitext(os.path.basename(args.audio))[0], None
@@ -480,15 +485,14 @@ def main():
             files_to_cleanup.append(audio_path)
         else:
             print("Invalid audio input. Please provide a valid file path, YouTube URL, or 'generate'.")
-            sys.exit(1)
     elif args.text:
-        audio_path, title, description = generate_speech(args.text)
+        audio_path, title, description = generate_speech(args.text, args.voice_id)
         files_to_cleanup.append(audio_path)
     elif not args.autofill:
         audio_path, title, description = get_audio_source()
         files_to_cleanup.append(audio_path)
     else:
-        print("Error: Neither audio nor text for speech generation provided in auto-fill mode.")
+        print("Error: Neither audio nor text for speech generation provided in autofill mode.")
         sys.exit(1)
 
     # Handle image source
