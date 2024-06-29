@@ -81,18 +81,23 @@ def sanitize_filename(filename):
     sanitized = sanitized.strip('-')
     return sanitized
 
-
 def generate_image_prompt(description, is_retry=False):
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    client = OpenAI(api_key=os.environ.get("OPENAI_PERSONAL_API_KEY") or os.environ.get("OPENAI_API_KEY"))
     system_content = "You are a helpful assistant that creates high-quality image prompts for DALL-E based on user descriptions."
+    if len(description) < 15:
+        system_content += " Always include visual elements that represent music or audio in your prompts, even if not explicitly mentioned in the description."
     if is_retry:
         system_content += " The previous prompt violated content policy. Please create a new prompt that avoids potentially sensitive or controversial topics."
     
+    user_content = f"Create a detailed, high-quality image prompt for DALL-E based on this description: {description}"
+    if len(description) < 15:
+        user_content += " Ensure to include visual elements representing music or audio."
+
     response = client.chat.completions.create(
         model="gpt-4",
         messages=[
             {"role": "system", "content": system_content},
-            {"role": "user", "content": f"Create a detailed, high-quality image prompt for DALL-E based on this description, and do not include any captions or text unless quotation marks are used in the description: {description}"}
+            {"role": "user", "content": user_content}
         ]
     )
     return response.choices[0].message.content
@@ -280,19 +285,26 @@ def get_audio_source():
 def infer_image_description(title, description=None):
     client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     
-    # Check if the title is short or potentially meaningless
-    if len(title.split()) <= 3 and not description:
-        title += " audio music"  # Add keywords for context
-    
+    # Check if the title is short
+    is_short = len(title.split()) <= 3
+
     if description:
         prompt = f"Based on the title '{title}' and description '{description}', describe an image that would be suitable for a video thumbnail or cover art for this audio content. The description should be detailed and visually rich."
     else:
-        prompt = f"Based on the title or filename '{title}', describe an image that would be suitable for a video thumbnail or cover art for this audio content. The description should be detailed and visually rich."
+        prompt = f"Based on the title '{title}', describe an image that would be suitable for a video thumbnail or cover art for this audio content. The description should be detailed and visually rich."
+
+    if is_short:
+        prompt += f" Since the title is short, make sure to include visual elements that represent audio or music in your description, even if not directly mentioned in the title."
     
+    system_content = "You are a creative assistant that generates detailed image descriptions based on titles and descriptions for audio content."
+    if is_short:
+        system_content += " For short titles, always include visual elements that represent music or audio in your descriptions."
+
+    print(" > " + prompt)
     response = client.chat.completions.create(
         model="gpt-4",
         messages=[
-            {"role": "system", "content": "You are a creative assistant that generates detailed image descriptions based on titles and descriptions for audio content."},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": prompt}
         ]
     )
@@ -481,9 +493,15 @@ def main():
         if args.image == "generate":
             if not args.image_description:
                 if args.autofill:
-                    args.image_description = f"An image representing: {title}"
+                    args.image_description = infer_image_description(title, description)
                 else:
-                    args.image_description = get_multiline_input("Please describe the image you want to generate (press Enter twice to finish, empty will infer from audio description):")
+                    user_input = get_multiline_input("Please describe the image you want to generate (press Enter twice to finish, empty will infer from audio description):")
+                    if not user_input.strip():
+                        args.image_description = infer_image_description(title, description)
+                    else:
+                        args.image_description = user_input
+            
+            print(f"Image description: {args.image_description}")
             image_prompt = generate_image_prompt(args.image_description)
             print(f"Generated image prompt: {image_prompt}")
             image_path = generate_image(image_prompt)
@@ -491,7 +509,8 @@ def main():
         else:
             image_path = args.image
     elif args.autofill:
-        args.image_description = f"An image representing: {title}"
+        args.image_description = infer_image_description(title, description)
+        print(f"Inferred image description: {args.image_description}")
         image_prompt = generate_image_prompt(args.image_description)
         print(f"Generated image prompt: {image_prompt}")
         image_path = generate_image(image_prompt)
@@ -499,12 +518,13 @@ def main():
     else:
         image_path = input("Enter the path to the image (or press Enter to generate one): ")
         if not image_path:
-            user_description = get_multiline_input("Please describe the image you want to generate (press Enter twice to finish):")
-            if not user_description:
-                print("Inferring image description from audio source...")
-                user_description = infer_image_description(title, description)
-                print(f"Inferred description: {user_description}")
-            image_prompt = generate_image_prompt(user_description)
+            user_description = get_multiline_input("Please describe the image you want to generate (press Enter twice to finish, empty will infer from audio description):")
+            if not user_description.strip():
+                args.image_description = infer_image_description(title, description)
+            else:
+                args.image_description = user_description
+            print(f"Image description: {args.image_description}")
+            image_prompt = generate_image_prompt(args.image_description)
             print(f"Generated image prompt: {image_prompt}")
             image_path = generate_image(image_prompt)
             files_to_cleanup.append(image_path)
