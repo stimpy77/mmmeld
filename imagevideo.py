@@ -1,4 +1,5 @@
 import os
+import sys
 import subprocess
 import time
 import re
@@ -12,44 +13,53 @@ from yt_dlp import YoutubeDL
 
 MAX_FILENAME_LENGTH = 100
 ELEVENLABS_VOICE_ID = "WWr4C8ld745zI3BiA8n7"
+DEFAULT_BG_MUSIC_VOLUME = 0.2  # 20% volume
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description="Generate a video from audio and image, with options for text-to-speech and image generation.",
+        description="Generate a video from audio and image, with options for text-to-speech, image generation, and background music.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   Generate video from local audio and image files:
     python imagevideo.py --audio path/to/audio.mp3 --image path/to/image.png
 
-  Generate video with text-to-speech and generated image:
-    python imagevideo.py --audio generate --text "Hello, world!" --image generate --image_description "A sunny day"
+  Generate video with text-to-speech, generated image, and background music:
+    python imagevideo.py --audio generate --text "Hello, world!" --image generate --image_description "A sunny day" --bg-music path/to/music.mp3
 
-  Download YouTube audio and generate image:
-    python imagevideo.py --audio https://www.youtube.com/watch?v=dQw4w9WgXcQ --image generate
+  Download YouTube audio, generate image, and add background music from YouTube:
+    python imagevideo.py --audio https://www.youtube.com/watch?v=dQw4w9WgXcQ --image generate --bg-music https://www.youtube.com/watch?v=background_music_id
 
   Run interactively (no arguments):
     python imagevideo.py
         """
     )
     
-    parser.add_argument("--audio", 
-                        help="Path to audio file, YouTube URL, or 'generate' for text-to-speech.")
-    parser.add_argument("--image", 
-                        help="Path to image file or 'generate' to create one.")
-    parser.add_argument("--output", 
-                        help="Path for the output video file. Default is based on audio filename.")
-    parser.add_argument("--text", 
-                        help="Text for speech generation (used if audio is 'generate').")
-    parser.add_argument("--image_description", 
-                        help="Description for image generation (used if image is 'generate').")
+    parser.add_argument("--audio", help="Path to audio file, YouTube URL, or 'generate' for text-to-speech.")
+    parser.add_argument("--image", help="Path to image file or 'generate' to create one.")
+    parser.add_argument("--output", help="Path for the output video file. Default is based on audio filename.")
+    parser.add_argument("--text", help="Text for speech generation (used if audio is 'generate').")
+    parser.add_argument("--image_description", help="Description for image generation (used if image is 'generate').")
+    parser.add_argument("--bg-music", help="Path to background music file or YouTube URL.")
+    parser.add_argument("--bg-music-volume", type=float,
+                        help=f"Volume of background music (0.0 to 1.0). Default: {DEFAULT_BG_MUSIC_VOLUME}")
+    parser.add_argument("--cleanup", action="store_true", help="Clean up temporary files after video generation.")
+    parser.add_argument("--auto-fill", action="store_true", help="Use defaults for all unspecified options, no prompts.")
     
     # Add argument group for API keys
     api_group = parser.add_argument_group('API Keys')
     api_group.add_argument("--openai-key", help="OpenAI API key. Default: Use OPENAI_API_KEY environment variable.")
     api_group.add_argument("--elevenlabs-key", help="ElevenLabs API key. Default: Use ELEVENLABS_API_KEY environment variable.")
     
-    return parser.parse_args()
+    # Parse arguments without exiting on error
+    args, unknown = parser.parse_known_args()
+    
+    # If --help is in sys.argv, print help and exit
+    if "--help" in sys.argv or "-h" in sys.argv:
+        parser.print_help()
+        sys.exit(0)
+    
+    return args
 
 def get_multiline_input(prompt):
     print(prompt)
@@ -61,6 +71,16 @@ def get_multiline_input(prompt):
         else:
             break
     return "\n".join(lines)
+
+def sanitize_filename(filename):
+    # Replace any character that's not a word character, hyphen, underscore, or space with a hyphen
+    sanitized = re.sub(r'[^\w\-_ ]', '-', filename)
+    # Replace multiple hyphens with a single hyphen
+    sanitized = re.sub(r'-+', '-', sanitized)
+    # Remove leading and trailing hyphens
+    sanitized = sanitized.strip('-')
+    return sanitized
+
 
 def generate_image_prompt(description, is_retry=False):
     client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
@@ -112,8 +132,10 @@ def generate_image(prompt, max_retries=3):
             img = Image.open(BytesIO(img_response.content))
             img_path = "generated_image.png"
             img.save(img_path)
+            print(f"Image saved: {img_path}")
             
             return img_path
+
         except Exception as e:
             if "content_policy_violation" in str(e):
                 print(f"\nContent policy violation. Regenerating prompt...")
@@ -160,14 +182,19 @@ def download_youtube_audio(url):
         title = info['title']
         description = info.get('description', '')
         
-        if len(title) > MAX_FILENAME_LENGTH:
-            title = shorten_title(title)
+        # Sanitize the title for use as a filename
+        sanitized_title = sanitize_filename(title)
         
-        filename = f"{title}.%(ext)s"
+        if len(sanitized_title) > MAX_FILENAME_LENGTH:
+            sanitized_title = shorten_title(sanitized_title)
+        
+        filename = f"{sanitized_title}.%(ext)s"
         ydl_opts['outtmpl']['default'] = filename
         ydl.download([url])
     
-    return f"{title}.wav", title, description
+    output_filename = f"{sanitized_title}.wav"
+    print(f"Audio downloaded: {output_filename}")
+    return output_filename, sanitized_title, description
 
 def generate_speech_with_elevenlabs(text):
     print("Generating speech with ElevenLabs...")
@@ -199,7 +226,7 @@ def generate_speech_with_elevenlabs(text):
         with open(audio_filename, "wb") as f:
             for chunk in response.iter_content(chunk_size=1024):
                 f.write(chunk)
-        print("Audio stream saved successfully.")
+        print(f"Audio generated: {audio_filename}")
         return audio_filename, title, text
     else:
         print(response.text)
@@ -218,6 +245,7 @@ def generate_speech_with_openai(text):
     
     audio_filename = f"{title}.wav"
     response.stream_to_file(audio_filename)
+    print(f"Audio generated: {audio_filename}")
     
     return audio_filename, title, text
 
@@ -329,50 +357,147 @@ def generate_title_from_text(text):
     title = re.sub(r'\s+', '_', title)
     return title[:MAX_FILENAME_LENGTH]
 
+def get_background_music(bg_music_source):
+    if os.path.isfile(bg_music_source):
+        return bg_music_source
+    elif "youtube.com" in bg_music_source or "youtu.be" in bg_music_source:
+        print("Downloading background music from YouTube...")
+        return download_youtube_audio(bg_music_source)[0]  # Return only the file path
+    else:
+        print("Invalid background music input. Please provide a valid file path or YouTube URL.")
+        return None
+
+def generate_video_with_background(main_audio_path, image_path, bg_music_path, output_path, bg_music_volume):
+    # Get the dimensions of the input image
+    with Image.open(image_path) as img:
+        width, height = img.size
+
+    # Set the resolution based on the image dimensions
+    resolution = f"{width}x{height}"
+    video_bitrate = "5M"
+    audio_bitrate = "320k"
+
+    # Get the duration of the main audio
+    ffprobe_command = [
+        "ffprobe",
+        "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        main_audio_path
+    ]
+    try:
+        result = subprocess.run(ffprobe_command, capture_output=True, text=True, check=True)
+        main_audio_duration = float(result.stdout.strip())
+    except subprocess.CalledProcessError as e:
+        print(f"Error getting audio duration: {e}")
+        return False
+
+    # Calculate fade start time
+    fade_start = max(0, main_audio_duration - 2)
+    
+    ffmpeg_command = [
+        "ffmpeg",
+        "-loop", "1",
+        "-i", image_path,
+        "-i", main_audio_path,
+        "-i", bg_music_path,
+        "-filter_complex", 
+        f"[1:a]aformat=fltp:44100:stereo,adelay=500|500[a1];"
+        f"[2:a]aformat=fltp:44100:stereo,volume={bg_music_volume},aloop=loop=-1:size=2e+09,afade=t=out:st={fade_start}:d=2[a2];"
+        f"[a1][a2]amix=inputs=2:duration=first[a]",
+        "-map", "0:v",
+        "-map", "[a]",
+        "-c:v", "libx264",
+        "-tune", "stillimage",
+        "-c:a", "aac",
+        "-b:a", audio_bitrate,
+        "-pix_fmt", "yuv420p",
+        "-shortest",
+        "-vf", f"scale={resolution}",
+        "-b:v", video_bitrate,        "-y", output_path
+    ]
+    
+    try:
+        subprocess.run(ffmpeg_command, check=True)
+        print(f"Video generated: {output_path}")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Error generating video: {e}")
+        return False
+
+def cleanup_files(files_to_remove):
+    for file in files_to_remove:
+        try:
+            os.remove(file)
+            print(f"Removed temporary file: {file}")
+        except OSError as e:
+            print(f"Error removing file {file}: {e}")
+
 def main():
     args = parse_arguments()
-
+    
     # Set API keys if provided
     if args.openai_key:
         os.environ["OPENAI_API_KEY"] = args.openai_key
     if args.elevenlabs_key:
         os.environ["ELEVENLABS_API_KEY"] = args.elevenlabs_key
 
+    files_to_cleanup = []
+
     # Handle audio source
     if args.audio:
         if args.audio == "generate":
-            text_to_speak = args.text or get_multiline_input("Enter the text you want to convert to speech (press Enter twice to finish):")
-            audio_path, title, description = generate_speech(text_to_speak)
+            if not args.text:
+                if args.auto_fill:
+                    print("Error: Text for speech generation is required in auto-fill mode when audio is set to 'generate'.")
+                    sys.exit(1)
+                else:
+                    args.text = get_multiline_input("Enter the text you want to convert to speech (press Enter twice to finish):")
+            audio_path, title, description = generate_speech(args.text)
+            files_to_cleanup.append(audio_path)
         elif os.path.isfile(args.audio):
             audio_path, title, description = args.audio, os.path.splitext(os.path.basename(args.audio))[0], None
         elif "youtube.com" in args.audio or "youtu.be" in args.audio:
             print("Downloading audio from YouTube...")
             audio_path, title, description = download_youtube_audio(args.audio)
+            files_to_cleanup.append(audio_path)
         else:
             print("Invalid audio input. Please provide a valid file path, YouTube URL, or 'generate'.")
-            return
-    else:
+            sys.exit(1)
+    elif args.text:
+        audio_path, title, description = generate_speech(args.text)
+        files_to_cleanup.append(audio_path)
+    elif not args.auto_fill:
         audio_path, title, description = get_audio_source()
+        files_to_cleanup.append(audio_path)
+    else:
+        print("Error: Neither audio nor text for speech generation provided in auto-fill mode.")
+        sys.exit(1)
 
     # Handle image source
     if args.image:
         if args.image == "generate":
-            user_description = args.image_description
-            if not user_description:
-                user_description = get_multiline_input("Please describe the image you want to generate (press Enter twice to finish, or just press Enter twice to infer from audio):")
-                if not user_description:
-                    print("Inferring image description from audio source...")
-                    user_description = infer_image_description(title, description)
-                    print(f"Inferred description: {user_description}")
-            image_prompt = generate_image_prompt(user_description)
+            if not args.image_description:
+                if args.auto_fill:
+                    args.image_description = f"An image representing: {title}"
+                else:
+                    args.image_description = get_multiline_input("Please describe the image you want to generate (press Enter twice to finish, empty will infer from audio description):")
+            image_prompt = generate_image_prompt(args.image_description)
             print(f"Generated image prompt: {image_prompt}")
             image_path = generate_image(image_prompt)
+            files_to_cleanup.append(image_path)
         else:
             image_path = args.image
+    elif args.auto_fill:
+        args.image_description = f"An image representing: {title}"
+        image_prompt = generate_image_prompt(args.image_description)
+        print(f"Generated image prompt: {image_prompt}")
+        image_path = generate_image(image_prompt)
+        files_to_cleanup.append(image_path)
     else:
         image_path = input("Enter the path to the image (or press Enter to generate one): ")
         if not image_path:
-            user_description = get_multiline_input("Please describe the image you want to generate (press Enter twice to finish, or just press Enter twice to infer from audio):")
+            user_description = get_multiline_input("Please describe the image you want to generate (press Enter twice to finish):")
             if not user_description:
                 print("Inferring image description from audio source...")
                 user_description = infer_image_description(title, description)
@@ -380,20 +505,63 @@ def main():
             image_prompt = generate_image_prompt(user_description)
             print(f"Generated image prompt: {image_prompt}")
             image_path = generate_image(image_prompt)
+            files_to_cleanup.append(image_path)
+
+    # Handle background music
+    bg_music_path = None
+    if args.bg_music:
+        bg_music_path = get_background_music(args.bg_music)
+        if bg_music_path != args.bg_music:  # If it's a new file (e.g., downloaded from YouTube)
+            files_to_cleanup.append(bg_music_path)
+    elif not args.auto_fill:
+        bg_music_input = input("Enter the path to background music file or YouTube URL (or press Enter to skip): ")
+        if bg_music_input:
+            bg_music_path = get_background_music(bg_music_input)
+            if bg_music_path != bg_music_input:  # If it's a new file
+                files_to_cleanup.append(bg_music_path)
+
+    # Handle background music volume
+    if bg_music_path:
+        if args.bg_music_volume is not None:
+            bg_music_volume = args.bg_music_volume
+        elif not args.auto_fill:
+            volume_input = input(f"Enter the volume for background music (0.0 to 1.0, default {DEFAULT_BG_MUSIC_VOLUME}): ")
+            bg_music_volume = float(volume_input) if volume_input else DEFAULT_BG_MUSIC_VOLUME
+        else:
+            bg_music_volume = DEFAULT_BG_MUSIC_VOLUME
+    else:
+        bg_music_volume = None
 
     # Handle output path
     if args.output:
         output_path = args.output
+    elif args.auto_fill:
+        output_path = get_default_output_path(audio_path, title)
     else:
         default_output_path = get_default_output_path(audio_path, title)
         output_path = input(f"Enter the path for the output video file (press Enter for default: {default_output_path}): ")
         if not output_path:
             output_path = default_output_path
 
-    if generate_video(image_path, audio_path, output_path):
-        print(f"Video created successfully at {output_path}")
+    if bg_music_path:
+        if generate_video_with_background(audio_path, image_path, bg_music_path, output_path, bg_music_volume):
+            print(f"Video created successfully with background music at {output_path}")
+            print("The length of the video is the main audio length plus 2.5 seconds.")
+        else:
+            print("Video creation failed.")
+            sys.exit(1)
     else:
-        print("Video creation failed.")
+        if generate_video(image_path, audio_path, output_path):
+            print(f"Video created successfully at {output_path}")
+        else:
+            print("Video creation failed.")
+            sys.exit(1)
+
+    # Cleanup temporary files if requested
+    if args.cleanup:
+        cleanup_files(files_to_cleanup)
+    elif not args.auto_fill:
+        print("Temporary files were not cleaned up. Use --cleanup flag to remove them in future runs.")
 
 if __name__ == "__main__":
     main()
