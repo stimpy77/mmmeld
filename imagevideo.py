@@ -44,7 +44,7 @@ Examples:
     parser.add_argument("--bg-music-volume", type=float,
                         help=f"Volume of background music (0.0 to 1.0). Default: {DEFAULT_BG_MUSIC_VOLUME}")
     parser.add_argument("--cleanup", action="store_true", help="Clean up temporary files after video generation.")
-    parser.add_argument("--auto-fill", action="store_true", help="Use defaults for all unspecified options, no prompts.")
+    parser.add_argument("--autofill", action="store_true", help="Use defaults for all unspecified options, no prompts.")
     
     # Add argument group for API keys
     api_group = parser.add_argument_group('API Keys')
@@ -450,7 +450,7 @@ def main():
     if args.audio:
         if args.audio == "generate":
             if not args.text:
-                if args.auto_fill:
+                if args.autofill:
                     print("Error: Text for speech generation is required in auto-fill mode when audio is set to 'generate'.")
                     sys.exit(1)
                 else:
@@ -469,7 +469,7 @@ def main():
     elif args.text:
         audio_path, title, description = generate_speech(args.text)
         files_to_cleanup.append(audio_path)
-    elif not args.auto_fill:
+    elif not args.autofill:
         audio_path, title, description = get_audio_source()
         files_to_cleanup.append(audio_path)
     else:
@@ -480,7 +480,7 @@ def main():
     if args.image:
         if args.image == "generate":
             if not args.image_description:
-                if args.auto_fill:
+                if args.autofill:
                     args.image_description = f"An image representing: {title}"
                 else:
                     args.image_description = get_multiline_input("Please describe the image you want to generate (press Enter twice to finish, empty will infer from audio description):")
@@ -490,7 +490,7 @@ def main():
             files_to_cleanup.append(image_path)
         else:
             image_path = args.image
-    elif args.auto_fill:
+    elif args.autofill:
         args.image_description = f"An image representing: {title}"
         image_prompt = generate_image_prompt(args.image_description)
         print(f"Generated image prompt: {image_prompt}")
@@ -515,7 +515,7 @@ def main():
         bg_music_path = get_background_music(args.bg_music)
         if bg_music_path != args.bg_music:  # If it's a new file (e.g., downloaded from YouTube)
             files_to_cleanup.append(bg_music_path)
-    elif not args.auto_fill:
+    elif not args.autofill:
         bg_music_input = input("Enter the path to background music file or YouTube URL (or press Enter to skip): ")
         if bg_music_input:
             bg_music_path = get_background_music(bg_music_input)
@@ -526,7 +526,7 @@ def main():
     if bg_music_path:
         if args.bg_music_volume is not None:
             bg_music_volume = args.bg_music_volume
-        elif not args.auto_fill:
+        elif not args.autofill:
             volume_input = input(f"Enter the volume for background music (0.0 to 1.0, default {DEFAULT_BG_MUSIC_VOLUME}): ")
             bg_music_volume = float(volume_input) if volume_input else DEFAULT_BG_MUSIC_VOLUME
         else:
@@ -537,7 +537,7 @@ def main():
     # Handle output path
     if args.output:
         output_path = args.output
-    elif args.auto_fill:
+    elif args.autofill:
         output_path = get_default_output_path(audio_path, title)
     else:
         default_output_path = get_default_output_path(audio_path, title)
@@ -562,7 +562,7 @@ def main():
     # Cleanup temporary files if requested
     if args.cleanup:
         cleanup_files(files_to_cleanup)
-    elif not args.auto_fill:
+    elif not args.autofill:
         print("Temporary files were not cleaned up. Use --cleanup flag to remove them in future runs.")
 
 if __name__ == "__main__":
