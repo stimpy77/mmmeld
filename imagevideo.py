@@ -2,6 +2,7 @@ import os
 import subprocess
 import time
 import re
+import argparse
 from openai import OpenAI
 from PIL import Image
 import requests
@@ -9,8 +10,46 @@ from io import BytesIO
 from tqdm import tqdm
 from yt_dlp import YoutubeDL
 
-MAX_FILENAME_LENGTH = 100  # Maximum desired filename length
+MAX_FILENAME_LENGTH = 100
 ELEVENLABS_VOICE_ID = "WWr4C8ld745zI3BiA8n7"
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="Generate a video from audio and image, with options for text-to-speech and image generation.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  Generate video from local audio and image files:
+    python imagevideo.py --audio path/to/audio.mp3 --image path/to/image.png
+
+  Generate video with text-to-speech and generated image:
+    python imagevideo.py --audio generate --text "Hello, world!" --image generate --image_description "A sunny day"
+
+  Download YouTube audio and generate image:
+    python imagevideo.py --audio https://www.youtube.com/watch?v=dQw4w9WgXcQ --image generate
+
+  Run interactively (no arguments):
+    python imagevideo.py
+        """
+    )
+    
+    parser.add_argument("--audio", 
+                        help="Path to audio file, YouTube URL, or 'generate' for text-to-speech.")
+    parser.add_argument("--image", 
+                        help="Path to image file or 'generate' to create one.")
+    parser.add_argument("--output", 
+                        help="Path for the output video file. Default is based on audio filename.")
+    parser.add_argument("--text", 
+                        help="Text for speech generation (used if audio is 'generate').")
+    parser.add_argument("--image_description", 
+                        help="Description for image generation (used if image is 'generate').")
+    
+    # Add argument group for API keys
+    api_group = parser.add_argument_group('API Keys')
+    api_group.add_argument("--openai-key", help="OpenAI API key. Default: Use OPENAI_API_KEY environment variable.")
+    api_group.add_argument("--elevenlabs-key", help="ElevenLabs API key. Default: Use ELEVENLABS_API_KEY environment variable.")
+    
+    return parser.parse_args()
 
 def get_multiline_input(prompt):
     print(prompt)
@@ -272,7 +311,6 @@ def get_default_output_path(audio_path, title=None):
     if base_name.lower().endswith('audio'):
         base_name = base_name[:-5] + 'video'
     output = f"{base_name}.mp4"
-    # print(f"Outputting: {output}")
     return output
 
 def generate_title_from_text(text):
@@ -291,38 +329,71 @@ def generate_title_from_text(text):
     title = re.sub(r'\s+', '_', title)
     return title[:MAX_FILENAME_LENGTH]
 
-if __name__ == "__main__":
-    audio_path, title, description = get_audio_source()
-    if not audio_path:
-        print("Failed to get audio source. Exiting.")
-        exit(1)
-    
-    image_path = input("Enter the path to the image (or press Enter to generate one): ")
-    
-    if not image_path:
-        user_description = get_multiline_input("Please describe the image you want to generate (press Enter twice to finish, or just press Enter twice to infer from audio):")
-        if not user_description:
-            print("Inferring image description from audio source...")
-            user_description = infer_image_description(title, description)
-            print(f"Inferred description: {user_description}")
-        
-        image_prompt = generate_image_prompt(user_description)
-        print(f"Generated image prompt: {image_prompt}")
-        image_path = generate_image(image_prompt)
-        while image_path is None:
-            print("Regenerating image prompt and retrying...")
-            image_prompt = generate_image_prompt(user_description, is_retry=True)
-            print(f"New image prompt: {image_prompt}")
-            image_path = generate_image(image_prompt)
-        
-        print(f"Image generated and saved at: {image_path}")
+def main():
+    args = parse_arguments()
 
-    default_output_path = get_default_output_path(audio_path, title)
-    output_path = input(f"Enter the path for the output video file (press Enter for default: {default_output_path}): ")
-    if not output_path:
-        output_path = default_output_path
+    # Set API keys if provided
+    if args.openai_key:
+        os.environ["OPENAI_API_KEY"] = args.openai_key
+    if args.elevenlabs_key:
+        os.environ["ELEVENLABS_API_KEY"] = args.elevenlabs_key
+
+    # Handle audio source
+    if args.audio:
+        if args.audio == "generate":
+            text_to_speak = args.text or get_multiline_input("Enter the text you want to convert to speech (press Enter twice to finish):")
+            audio_path, title, description = generate_speech(text_to_speak)
+        elif os.path.isfile(args.audio):
+            audio_path, title, description = args.audio, os.path.splitext(os.path.basename(args.audio))[0], None
+        elif "youtube.com" in args.audio or "youtu.be" in args.audio:
+            print("Downloading audio from YouTube...")
+            audio_path, title, description = download_youtube_audio(args.audio)
+        else:
+            print("Invalid audio input. Please provide a valid file path, YouTube URL, or 'generate'.")
+            return
+    else:
+        audio_path, title, description = get_audio_source()
+
+    # Handle image source
+    if args.image:
+        if args.image == "generate":
+            user_description = args.image_description
+            if not user_description:
+                user_description = get_multiline_input("Please describe the image you want to generate (press Enter twice to finish, or just press Enter twice to infer from audio):")
+                if not user_description:
+                    print("Inferring image description from audio source...")
+                    user_description = infer_image_description(title, description)
+                    print(f"Inferred description: {user_description}")
+            image_prompt = generate_image_prompt(user_description)
+            print(f"Generated image prompt: {image_prompt}")
+            image_path = generate_image(image_prompt)
+        else:
+            image_path = args.image
+    else:
+        image_path = input("Enter the path to the image (or press Enter to generate one): ")
+        if not image_path:
+            user_description = get_multiline_input("Please describe the image you want to generate (press Enter twice to finish, or just press Enter twice to infer from audio):")
+            if not user_description:
+                print("Inferring image description from audio source...")
+                user_description = infer_image_description(title, description)
+                print(f"Inferred description: {user_description}")
+            image_prompt = generate_image_prompt(user_description)
+            print(f"Generated image prompt: {image_prompt}")
+            image_path = generate_image(image_prompt)
+
+    # Handle output path
+    if args.output:
+        output_path = args.output
+    else:
+        default_output_path = get_default_output_path(audio_path, title)
+        output_path = input(f"Enter the path for the output video file (press Enter for default: {default_output_path}): ")
+        if not output_path:
+            output_path = default_output_path
 
     if generate_video(image_path, audio_path, output_path):
         print(f"Video created successfully at {output_path}")
     else:
         print("Video creation failed.")
+
+if __name__ == "__main__":
+    main()
