@@ -263,8 +263,8 @@ def get_default_output_path(audio_path, title=None):
         base_name = title.replace(' ', '_')
     else:
         base_name = os.path.splitext(audio_path)[0]
-        if base_name.lower().endswith('audio'):
-            base_name = base_name[:-5] + 'video'
+    if base_name.lower().endswith('audio'):
+        base_name = base_name[:-5] + 'video'
     output = f"{base_name}.mp4"
     # print(f"Outputting: {output}")
     return output
