@@ -27,6 +27,9 @@ Examples:
   Generate video with text-to-speech, generated image, and background music:
     python imagevideo.py --audio generate --text "Hello, world!" --image generate --image_description "A sunny day" --bg-music path/to/music.mp3
 
+  Download YouTube audio, generate image, and add background music from YouTube:
+    python imagevideo.py --audio https://www.youtube.com/watch?v=dQw4w9WgXcQ --image generate --bg-music https://www.youtube.com/watch?v=background_music_id
+
   Generate video with specific ElevenLabs voice ID:
     python imagevideo.py --audio generate --text "Hello, world!" --voice-id your_voice_id_here
 
