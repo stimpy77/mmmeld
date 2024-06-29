@@ -102,8 +102,8 @@ def generate_image_prompt(description, is_retry=False):
     )
     return response.choices[0].message.content
 
-def generate_image(prompt, max_retries=3):
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+def generate_image(prompt, audio_filename, max_retries=3):
+    client = OpenAI(api_key=os.environ.get("OPENAI_PERSONAL_API_KEY") or os.environ.get("OPENAI_API_KEY"))
     
     for attempt in range(max_retries):
         print(f"Generating image (Attempt {attempt + 1}/{max_retries})", end="", flush=True)
@@ -135,7 +135,10 @@ def generate_image(prompt, max_retries=3):
             # Download and save the image
             img_response = requests.get(image_url)
             img = Image.open(BytesIO(img_response.content))
-            img_path = "generated_image.png"
+            
+            # Use the audio filename (without extension) for the image
+            audio_name = os.path.splitext(os.path.basename(audio_filename))[0]
+            img_path = f"{audio_name}_image.png"
             img.save(img_path)
             print(f"Image saved: {img_path}")
             
@@ -504,7 +507,7 @@ def main():
             print(f"Image description: {args.image_description}")
             image_prompt = generate_image_prompt(args.image_description)
             print(f"Generated image prompt: {image_prompt}")
-            image_path = generate_image(image_prompt)
+            image_path = generate_image(image_prompt, audio_path)
             files_to_cleanup.append(image_path)
         else:
             image_path = args.image
@@ -513,7 +516,7 @@ def main():
         print(f"Inferred image description: {args.image_description}")
         image_prompt = generate_image_prompt(args.image_description)
         print(f"Generated image prompt: {image_prompt}")
-        image_path = generate_image(image_prompt)
+        image_path = generate_image(image_prompt, audio_path)
         files_to_cleanup.append(image_path)
     else:
         image_path = input("Enter the path to the image (or press Enter to generate one): ")
@@ -526,7 +529,7 @@ def main():
             print(f"Image description: {args.image_description}")
             image_prompt = generate_image_prompt(args.image_description)
             print(f"Generated image prompt: {image_prompt}")
-            image_path = generate_image(image_prompt)
+            image_path = generate_image(image_prompt, audio_path)
             files_to_cleanup.append(image_path)
 
     # Handle background music
