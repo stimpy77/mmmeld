@@ -12,37 +12,36 @@ from yt_dlp import YoutubeDL
 
 MAX_FILENAME_LENGTH = 100
 ELEVENLABS_VOICE_ID = "WWr4C8ld745zI3BiA8n7"
+DEFAULT_BG_MUSIC_VOLUME = 0.2  # 20% volume
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description="Generate a video from audio and image, with options for text-to-speech and image generation.",
+        description="Generate a video from audio and image, with options for text-to-speech, image generation, and background music.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   Generate video from local audio and image files:
     python imagevideo.py --audio path/to/audio.mp3 --image path/to/image.png
 
-  Generate video with text-to-speech and generated image:
-    python imagevideo.py --audio generate --text "Hello, world!" --image generate --image_description "A sunny day"
+  Generate video with text-to-speech, generated image, and background music:
+    python imagevideo.py --audio generate --text "Hello, world!" --image generate --image_description "A sunny day" --bg-music path/to/music.mp3
 
-  Download YouTube audio and generate image:
-    python imagevideo.py --audio https://www.youtube.com/watch?v=dQw4w9WgXcQ --image generate
+  Download YouTube audio, generate image, and add background music from YouTube:
+    python imagevideo.py --audio https://www.youtube.com/watch?v=dQw4w9WgXcQ --image generate --bg-music https://www.youtube.com/watch?v=background_music_id
 
   Run interactively (no arguments):
     python imagevideo.py
         """
     )
     
-    parser.add_argument("--audio", 
-                        help="Path to audio file, YouTube URL, or 'generate' for text-to-speech.")
-    parser.add_argument("--image", 
-                        help="Path to image file or 'generate' to create one.")
-    parser.add_argument("--output", 
-                        help="Path for the output video file. Default is based on audio filename.")
-    parser.add_argument("--text", 
-                        help="Text for speech generation (used if audio is 'generate').")
-    parser.add_argument("--image_description", 
-                        help="Description for image generation (used if image is 'generate').")
+    parser.add_argument("--audio", help="Path to audio file, YouTube URL, or 'generate' for text-to-speech.")
+    parser.add_argument("--image", help="Path to image file or 'generate' to create one.")
+    parser.add_argument("--output", help="Path for the output video file. Default is based on audio filename.")
+    parser.add_argument("--text", help="Text for speech generation (used if audio is 'generate').")
+    parser.add_argument("--image_description", help="Description for image generation (used if image is 'generate').")
+    parser.add_argument("--bg-music", help="Path to background music file or YouTube URL.")
+    parser.add_argument("--bg-music-volume", type=float, default=DEFAULT_BG_MUSIC_VOLUME,
+                        help=f"Volume of background music (0.0 to 1.0). Default: {DEFAULT_BG_MUSIC_VOLUME}")
     
     # Add argument group for API keys
     api_group = parser.add_argument_group('API Keys')
@@ -329,6 +328,59 @@ def generate_title_from_text(text):
     title = re.sub(r'\s+', '_', title)
     return title[:MAX_FILENAME_LENGTH]
 
+def get_background_music(bg_music_source):
+    if os.path.isfile(bg_music_source):
+        return bg_music_source
+    elif "youtube.com" in bg_music_source or "youtu.be" in bg_music_source:
+        print("Downloading background music from YouTube...")
+        return download_youtube_audio(bg_music_source)[0]  # Return only the file path
+    else:
+        print("Invalid background music input. Please provide a valid file path or YouTube URL.")
+        return None
+
+def generate_video_with_background(main_audio_path, image_path, bg_music_path, output_path, bg_music_volume):
+    # Get the dimensions of the input image
+    with Image.open(image_path) as img:
+        width, height = img.size
+
+    # Set the resolution based on the image dimensions
+    resolution = f"{width}x{height}"
+    video_bitrate = "5M"
+    audio_bitrate = "320k"
+    
+    ffmpeg_command = [
+        "ffmpeg",
+        "-loop", "1",
+        "-i", image_path,
+        "-i", main_audio_path,
+        "-i", bg_music_path,
+        "-filter_complex", 
+        f"[1:a]aformat=fltp:44100:stereo,adelay=500|500[a1];"
+        f"[2:a]aformat=fltp:44100:stereo,volume={bg_music_volume}[a2];"
+        f"[a2]aloop=loop=-1:size=2e+09[a2looped];"
+        f"[a1]apad=pad_dur=2[a1pad];"
+        f"[a1pad][a2looped]amix=inputs=2:duration=first[amixed];"
+        f"[amixed]afade=t=out:st=-2:d=2[afaded]",
+        "-map", "0:v",
+        "-map", "[afaded]",
+        "-c:v", "libx264",
+        "-tune", "stillimage",
+        "-c:a", "aac",
+        "-b:a", audio_bitrate,
+        "-pix_fmt", "yuv420p",
+        "-shortest",
+        "-vf", f"scale={resolution}",
+        "-b:v", video_bitrate,
+        "-y", output_path
+    ]
+    
+    try:
+        subprocess.run(ffmpeg_command, check=True)
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Error generating video: {e}")
+        return False
+
 def main():
     args = parse_arguments()
 
@@ -381,6 +433,25 @@ def main():
             print(f"Generated image prompt: {image_prompt}")
             image_path = generate_image(image_prompt)
 
+    # Handle background music
+    bg_music_path = None
+    if args.bg_music:
+        bg_music_path = get_background_music(args.bg_music)
+    else:
+        bg_music_input = input("Enter the path to background music file or YouTube URL (or press Enter to skip): ")
+        if bg_music_input:
+            bg_music_path = get_background_music(bg_music_input)
+
+    # Handle background music volume
+    if bg_music_path:
+        if args.bg_music_volume is not None:
+            bg_music_volume = args.bg_music_volume
+        else:
+            volume_input = input(f"Enter the volume for background music (0.0 to 1.0, default {DEFAULT_BG_MUSIC_VOLUME}): ")
+            bg_music_volume = float(volume_input) if volume_input else DEFAULT_BG_MUSIC_VOLUME
+    else:
+        bg_music_volume = None
+
     # Handle output path
     if args.output:
         output_path = args.output
@@ -390,10 +461,14 @@ def main():
         if not output_path:
             output_path = default_output_path
 
-    if generate_video(image_path, audio_path, output_path):
-        print(f"Video created successfully at {output_path}")
+    if bg_music_path:
+        if generate_video_with_background(audio_path, image_path, bg_music_path, output_path, bg_music_volume):
+            print(f"Video created successfully with background music at {output_path}")
+            print("The length of the video is the main audio length plus 2.5 seconds.")
+        else:
+            print("Video creation failed.")
     else:
-        print("Video creation failed.")
-
-if __name__ == "__main__":
-    main()
+        if generate_video(image_path, audio_path, output_path):
+            print(f"Video created successfully at {output_path}")
+        else:
+            print("Video creation failed.")
