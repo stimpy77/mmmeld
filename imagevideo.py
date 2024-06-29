@@ -481,3 +481,6 @@ def main():
             print(f"Video created successfully at {output_path}")
         else:
             print("Video creation failed.")
+
+if __name__ == "__main__":
+    main()
