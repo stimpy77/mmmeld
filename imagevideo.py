@@ -10,7 +10,7 @@ from tqdm import tqdm
 from yt_dlp import YoutubeDL
 
 MAX_FILENAME_LENGTH = 100  # Maximum desired filename length
-ELEVENLABS_VOICE_ID = "ryn3WBvkCsp4dPZksMIf"
+ELEVENLABS_VOICE_ID = "WWr4C8ld745zI3BiA8n7"
 
 def get_multiline_input(prompt):
     print(prompt)
@@ -136,7 +136,8 @@ def generate_speech_with_elevenlabs(text):
     if not api_key:
         raise ValueError("ElevenLabs API key is not set.")
     
-    voice_id = ELEVENLABS_VOICE_ID
+    voice_id = input(f"Enter ElevenLabs voice ID, or press ENTER for default [{ELEVENLABS_VOICE_ID}]: ") or ELEVENLABS_VOICE_ID
+    print(f"Using voice ID: {voice_id}")
     tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
     headers = {
         "Accept": "application/json",
