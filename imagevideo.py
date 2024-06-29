@@ -392,8 +392,8 @@ def generate_video_with_background(main_audio_path, image_path, bg_music_path, o
         print(f"Error getting audio duration: {e}")
         return False
 
-    # Calculate fade start time
-    fade_start = max(0, main_audio_duration - 2)
+    # Calculate total video duration (main audio + 2 seconds)
+    total_duration = main_audio_duration + 2
     
     ffmpeg_command = [
         "ffmpeg",
@@ -402,8 +402,9 @@ def generate_video_with_background(main_audio_path, image_path, bg_music_path, o
         "-i", main_audio_path,
         "-i", bg_music_path,
         "-filter_complex", 
-        f"[1:a]aformat=fltp:44100:stereo,adelay=500|500[a1];"
-        f"[2:a]aformat=fltp:44100:stereo,volume={bg_music_volume},aloop=loop=-1:size=2e+09,afade=t=out:st={fade_start}:d=2[a2];"
+        f"[1:a]aformat=fltp:44100:stereo,adelay=500|500,apad=pad_dur=2[a1];"
+        f"[2:a]aformat=fltp:44100:stereo,volume={bg_music_volume},aloop=loop=-1:size=2e+09,"
+        f"afade=t=out:st={main_audio_duration}:d=2[a2];"
         f"[a1][a2]amix=inputs=2:duration=first[a]",
         "-map", "0:v",
         "-map", "[a]",
@@ -412,9 +413,10 @@ def generate_video_with_background(main_audio_path, image_path, bg_music_path, o
         "-c:a", "aac",
         "-b:a", audio_bitrate,
         "-pix_fmt", "yuv420p",
-        "-shortest",
+        "-t", str(total_duration),
         "-vf", f"scale={resolution}",
-        "-b:v", video_bitrate,        "-y", output_path
+        "-b:v", video_bitrate,
+        "-y", output_path
     ]
     
     try:
