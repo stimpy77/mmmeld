@@ -48,7 +48,14 @@ Examples:
     api_group.add_argument("--openai-key", help="OpenAI API key. Default: Use OPENAI_API_KEY environment variable.")
     api_group.add_argument("--elevenlabs-key", help="ElevenLabs API key. Default: Use ELEVENLABS_API_KEY environment variable.")
     
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    # If no arguments are provided, print help and exit
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(1)
+
+    return args
 
 def get_multiline_input(prompt):
     print(prompt)
