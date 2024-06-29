@@ -231,7 +231,12 @@ def infer_image_description(title, description=None):
     return response.choices[0].message.content
 
 def generate_video(image_path, audio_path, output_path):
-    resolution = "1080x1080"
+    # Get the dimensions of the input image
+    with Image.open(image_path) as img:
+        width, height = img.size
+
+    # Set the resolution based on the image dimensions
+    resolution = f"{width}x{height}"
     video_bitrate = "5M"
     audio_bitrate = "320k"
     
