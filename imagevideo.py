@@ -278,6 +278,7 @@ def generate_speech_with_openai(text):
     return audio_filename, title, text
 
 def generate_speech(text, voice_id=None, autofill=False):
+    print(f"Generating speech for text:\n{text}\n")
     tts_provider = os.environ.get("TTS_PROVIDER", "elevenlabs").lower()
     
     if tts_provider == "elevenlabs":
@@ -386,15 +387,14 @@ def download_file(url, prefix="downloaded"):
         return filename
     return None
 
-def process_image_input(image_input):
+def process_image_input(image_input, image_description=None):
     if image_input.lower() == 'generate':
-        return [generate_image(args.image_description or "A visual representation of audio", "generated_audio")]
+        return [generate_image(image_description or "A visual representation of audio", "generated_audio")]
     
-    image_inputs = image_input.split(',')
+    image_inputs = [input.strip() for input in image_input.split(',') if input.strip()]
     processed_inputs = []
     
     for input in image_inputs:
-        input = input.strip()
         if os.path.isfile(input):
             processed_inputs.append(input)
         elif input.startswith(('http://', 'https://')):
@@ -411,16 +411,13 @@ def process_image_input(image_input):
 def get_image_inputs(args):
     if args.autofill:
         if not args.image:
-            return [generate_image("A visual representation of audio", "generated_audio")]
-        elif args.image.strip() == "":
+            return [generate_image(args.image_description or "A visual representation of audio", "generated_audio")]
+        elif not args.image.strip():
             raise ValueError("Empty --image argument provided with --autofill. Please provide valid image input(s) or omit the argument.")
-        inputs = process_image_input(args.image)
+        inputs = process_image_input(args.image, args.image_description)
         if not inputs:
             raise ValueError("No valid image inputs found with --autofill. Please provide valid image input(s).")
         return inputs
-    
-    if args.autofill:
-        raise ValueError("No --image argument provided with --autofill. Please provide image input(s).")
     
     inputs = []
     first_input = True
@@ -439,7 +436,7 @@ def get_image_inputs(args):
         elif not file_path and not first_input:
             break
         else:
-            new_inputs = process_image_input(file_path)
+            new_inputs = process_image_input(file_path, args.image_description)
             if new_inputs:
                 inputs.extend(new_inputs)
                 first_input = False
@@ -460,14 +457,26 @@ def cleanup_files(files_to_remove):
     # Note: We're not removing the temp folder, even if it's empty
 
 def get_media_duration(file_path):
+    if not is_video(file_path):
+        return 5.0  # Assign a default duration of 5 seconds for images
     cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file_path]
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-    return float(result.stdout)
+    output = result.stdout.strip()
+    print(f"get_media_duration: file_path={file_path}, output='{output}'")  # Debugging statement
+    try:
+        return float(output)
+    except ValueError:
+        print(f"Warning: Could not determine duration for file {file_path}. Using default duration of 0.")
+        return 0
 
 def is_video(file_path):
     cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_packets", "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", file_path]
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-    return int(result.stdout.strip()) > 0
+    output = result.stdout.strip()
+    print(f"is_video: file_path={file_path}, output='{output}'")  # Debugging statement
+    if output.isdigit():  # Check if the output is a number
+        return int(output) > 0
+    return False
 
 """
 This function generate_filter_complex implements the following behavior:
@@ -501,11 +510,17 @@ def generate_filter_complex(inputs, main_audio_duration):
         for i, input_file in enumerate(inputs):
             if is_video(input_file):
                 video_duration = get_media_duration(input_file)
-                filter_complex.append(f"[{i}:v]setpts=PTS-STARTPTS+{current_duration}/TB[v{i}]")
-                splits.append(f"[v{i}]")
-                current_duration += video_duration
+                if video_duration > 0:
+                    filter_complex.append(f"[{i}:v]setpts=PTS-STARTPTS+{current_duration}/TB[v{i}]")
+                    splits.append(f"[v{i}]")
+                    current_duration += video_duration
             else:
-                filter_complex.append(f"[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,setpts=PTS-STARTPTS+{current_duration}/TB,trim=duration={image_duration}[v{i}]")
+                # Ensure a minimum duration for images
+                if image_duration <= 0:
+                    image_duration = 5.0
+                filter_complex.append(f"[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,"
+                                      f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,"
+                                      f"setpts=PTS-STARTPTS+{current_duration}/TB,trim=duration={image_duration}[v{i}]")
                 splits.append(f"[v{i}]")
                 current_duration += image_duration
     else:
@@ -515,38 +530,91 @@ def generate_filter_complex(inputs, main_audio_duration):
             if is_video(input_file):
                 filter_complex.append(f"[{i}:v]setpts=PTS-STARTPTS+{current_duration}/TB,trim=duration={input_duration}[v{i}]")
             else:
-                filter_complex.append(f"[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,setpts=PTS-STARTPTS+{current_duration}/TB,trim=duration={input_duration}[v{i}]")
+                filter_complex.append(f"[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,"
+                                      f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,"
+                                      f"setpts=PTS-STARTPTS+{current_duration}/TB,trim=duration={input_duration}[v{i}]")
             splits.append(f"[v{i}]")
             current_duration += input_duration
 
-    filter_complex.append(f"{''.join(splits)}concat=n={len(inputs)}:v=1:a=0[outv]")
+    if splits:
+        filter_complex.append(f"{''.join(splits)}concat=n={len(splits)}:v=1:a=0[outv]")
+    else:
+        print("Warning: No valid inputs found for filter complex.")
+        return None  # Ensure we return None if no valid inputs are found
+
+    filter_complex_str = ';'.join(filter_complex)
+    print(f"Generated filter_complex: {filter_complex_str}")  # Debugging statement
+
+    return filter_complex_str
+
+def generate_basic_video(image_path, audio_path, output_path):
+    # Get the dimensions of the input image
+    with Image.open(image_path) as img:
+        width, height = img.size
+
+    # Set the resolution based on the image dimensions
+    resolution = f"{width}x{height}"
+    video_bitrate = "5M"
+    audio_bitrate = "320k"
     
-    return ';'.join(filter_complex)
+    ffmpeg_command = [
+        "ffmpeg",
+        "-loop", "1",
+        "-i", image_path,
+        "-i", audio_path,
+        "-c:v", "libx264",
+        "-tune", "stillimage",
+        "-c:a", "aac",
+        "-b:a", audio_bitrate,
+        "-pix_fmt", "yuv420p",
+        "-shortest",
+        "-vf", f"scale={resolution}",
+        "-b:v", video_bitrate,
+        "-y", output_path
+    ]
+    
+    try:
+        subprocess.run(ffmpeg_command, check=True)
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Error generating video: {e}")
+        return False
 
 def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music_volume):
-    main_audio_duration = get_media_duration(main_audio_path) + 2.5  # Adding 0.5s lead-in and 2s tail
+    # Fallback for the basic case
+    if len(inputs) == 1 and bg_music_path is None:
+        return generate_basic_video(inputs[0], main_audio_path, output_path)
+    
+    main_audio_duration = get_media_duration(main_audio_path)
+    total_duration = main_audio_duration + 2.5  # Adding 0.5s lead-in and 2s tail
 
     filter_complex = generate_filter_complex(inputs, main_audio_duration)
-
+    if filter_complex is None:
+        print("Error: No valid filter complex could be generated.")
+        return False
+    
     ffmpeg_command = [
         "ffmpeg",
         *sum([["-i", input] for input in inputs], []),
         "-i", main_audio_path
     ]
 
+    audio_fade_filter = f"[{len(inputs)}:a]afade=t=in:st=0:d=0.5,afade=t=out:st={max(main_audio_duration-2, 0)}:d=2[aout]"
+
     if bg_music_path:
         ffmpeg_command.extend(["-i", bg_music_path])
         filter_complex += f";[{len(inputs)+1}:a]aloop=loop=-1:size=2e+09,volume={bg_music_volume}[bg];"
-        filter_complex += f"[{len(inputs)}:a]afade=t=in:st=0:d=0.5,afade=t=out:st={main_audio_duration-2}:d=2[main];"
-        filter_complex += f"[main][bg]amix=inputs=2:duration=first[aout]"
+        filter_complex += f"{audio_fade_filter};[aout][bg]amix=inputs=2:duration=first[aout]"
     else:
-        filter_complex += f";[{len(inputs)}:a]afade=t=in:st=0:d=0.5,afade=t=out:st={main_audio_duration-2}:d=2[aout]"
+        filter_complex += f";{audio_fade_filter}"
+
+    filter_complex = filter_complex.lstrip(';')  # Ensure no leading semicolon
 
     ffmpeg_command.extend([
         "-filter_complex", filter_complex,
         "-map", "[outv]",
         "-map", "[aout]",
-        "-t", str(main_audio_duration),
+        "-t", str(total_duration),
         "-c:v", "libx264",
         "-preset", "medium",
         "-crf", "23",
@@ -555,6 +623,8 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
         "-shortest",
         "-y", output_path
     ])
+
+    print(f"Generated ffmpeg command: {' '.join(ffmpeg_command)}")  # Debugging statement
 
     try:
         subprocess.run(ffmpeg_command, check=True)
