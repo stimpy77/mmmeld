@@ -217,17 +217,20 @@ def download_youtube_audio(url):
     print(f"Audio downloaded: {output_filename}")
     return output_filename, sanitized_title, description
 
-def generate_speech_with_elevenlabs(text, voice_id=None):
+def generate_speech_with_elevenlabs(text, voice_id=None, autofill=False):
     ensure_temp_folder()
     print("Generating speech with ElevenLabs...")
     api_key = os.environ.get("ELEVENLABS_API_KEY") or os.environ.get("XI_API_KEY")
     if not api_key:
         raise ValueError("ElevenLabs API key is not set.")
     
-    if not voice_id:
+    if not voice_id and not autofill:
         voice_id = input(f"Enter ElevenLabs voice ID, or press ENTER for default [{ELEVENLABS_VOICE_ID}]: ") or ELEVENLABS_VOICE_ID
+    elif not voice_id:
+        voice_id = ELEVENLABS_VOICE_ID
     
     print(f"Using voice ID: {voice_id}")
+
     tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
     headers = {
         "Accept": "application/json",
@@ -274,12 +277,12 @@ def generate_speech_with_openai(text):
     
     return audio_filename, title, text
 
-def generate_speech(text, voice_id=None):
+def generate_speech(text, voice_id=None, autofill=False):
     tts_provider = os.environ.get("TTS_PROVIDER", "elevenlabs").lower()
     
     if tts_provider == "elevenlabs":
         try:
-            return generate_speech_with_elevenlabs(text, voice_id)
+            return generate_speech_with_elevenlabs(text, voice_id, autofill)
         except Exception as e:
             print(f"ElevenLabs TTS failed: {e}")
             print("Falling back to OpenAI TTS...")
@@ -406,17 +409,14 @@ def process_image_input(image_input):
     return processed_inputs
 
 def get_image_inputs(args):
-    if args.image:
-        if args.image.strip() == "":
-            if args.autofill:
-                raise ValueError("Empty --image argument provided with --autofill. Please provide valid image input(s).")
-            return []  # Will trigger interactive prompt later
-        
+    if args.autofill:
+        if not args.image:
+            return [generate_image("A visual representation of audio", "generated_audio")]
+        elif args.image.strip() == "":
+            raise ValueError("Empty --image argument provided with --autofill. Please provide valid image input(s) or omit the argument.")
         inputs = process_image_input(args.image)
         if not inputs:
-            if args.autofill:
-                raise ValueError("No valid image inputs found with --autofill. Please provide valid image input(s).")
-            return []  # Will trigger interactive prompt later
+            raise ValueError("No valid image inputs found with --autofill. Please provide valid image input(s).")
         return inputs
     
     if args.autofill:
@@ -583,7 +583,7 @@ def main():
                         raise ValueError("Text for speech generation is required in autofill mode when audio is set to 'generate'.")
                     else:
                         args.text = get_multiline_input("Enter the text you want to convert to speech (press Enter twice to finish):")
-                audio_path, title, description = generate_speech(args.text, args.voice_id)
+                audio_path, title, description = generate_speech(args.text, args.voice_id, args.autofill)
                 files_to_cleanup.append(audio_path)
             elif os.path.isfile(args.audio):
                 audio_path, title, description = args.audio, os.path.splitext(os.path.basename(args.audio))[0], None
@@ -594,18 +594,20 @@ def main():
             else:
                 raise ValueError("Invalid audio input. Please provide a valid file path, YouTube URL, or 'generate'.")
         elif args.text:
-            audio_path, title, description = generate_speech(args.text, args.voice_id)
+            audio_path, title, description = generate_speech(args.text, args.voice_id, args.autofill)
             files_to_cleanup.append(audio_path)
-        elif not args.autofill:
+        elif args.autofill:
+            raise ValueError("Neither audio nor text for speech generation provided in autofill mode.")
+        else:
             audio_path, title, description = get_audio_source()
             files_to_cleanup.append(audio_path)
-        else:
-            raise ValueError("Neither audio nor text for speech generation provided in autofill mode.")
 
         # Handle image/video inputs
+        if args.autofill and not args.image:
+            args.image = "generate"
+        if args.image == "generate":
+            args.image_description = args.image_description or description or title or "A visual representation of audio"
         image_inputs = get_image_inputs(args)
-        if not image_inputs and not args.autofill:
-            raise ValueError("No valid image inputs provided.")
         files_to_cleanup.extend([f for f in image_inputs if f.startswith(os.path.abspath(TEMP_ASSETS_FOLDER))])
 
         # Handle background music
