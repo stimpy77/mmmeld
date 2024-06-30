@@ -1,5 +1,15 @@
 # Image Video Generator
-Creates a video consisting of an image/video and provided audio. The origianl purpose was to "video-ize" a music file. Can produce speech from text if no audio provided. Can produce an image if no image provided. Audio or image or video can come from local file or from YouTube URL. Multiple images can be provided to create a slideshow. If a video asset is referenced, only the video is used from that asset, not the audio. If multiple videos are provided, they are treated as a sequence and looped. If images and videos are provided, .. LOL well good luck and have fun.
+Creates a video consisting of an image/video and provided audio. The origianl purpose was to "video-ize" a music file.
+
+Can produce speech from text if no audio provided. Can produce an image if no image provided. 
+
+Audio or image or video can come from local file or from YouTube URL. Multiple images can be provided to create a slideshow. 
+
+If a video asset is referenced, only the video is used from that asset, not the audio. If multiple videos are provided, they are treated as a sequence and looped. 
+
+If images and videos are provided, .. LOL well good luck and have fun.
+
+There is a 0.5 second before and 2 seconds after silence buffer, and the visual component will fade out during those final 2 seconds of silence.
 
 ## Installation:
 
