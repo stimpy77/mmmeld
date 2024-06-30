@@ -389,7 +389,10 @@ def download_file(url, prefix="downloaded"):
 
 def process_image_input(image_input, image_description=None, files_to_cleanup=[]):
     if image_input.lower() == 'generate':
-        return [generate_image(image_description or "A visual representation of audio", "generated_audio", files_to_cleanup)]
+        generated_image = generate_image(image_description or "A visual representation of audio", "generated_audio")
+        if generated_image:
+            files_to_cleanup.append(generated_image)
+        return [generated_image]
     
     image_inputs = [input.strip() for input in image_input.split(',') if input.strip()]
     processed_inputs = []
@@ -409,7 +412,7 @@ def process_image_input(image_input, image_description=None, files_to_cleanup=[]
                 downloaded_file = download_file(input)
                 if downloaded_file:
                     processed_inputs.append(downloaded_file)
-                    files_to_cleanup.append(downloaded_file)  # Ensure it's added to cleanup list
+                    files_to_cleanup.append(downloaded_file)
                 else:
                     print(f"Failed to download: {input}")
         else:
@@ -417,13 +420,14 @@ def process_image_input(image_input, image_description=None, files_to_cleanup=[]
     
     return processed_inputs
 
-def download_youtube_video(url, files_to_cleanup=[]):
+def download_youtube_video(url, files_to_cleanup):
     ensure_temp_folder()
     ydl_opts = {
-        'format': 'bestvideo[ext=webm]+bestaudio[ext=webm]/bestvideo+bestaudio/best',
+        'format': 'bestvideo[ext=webm]/bestvideo[ext=mp4]/bestvideo',  # Prefer webm or mp4, but accept any video format
         'postprocessors': [],
         'outtmpl': os.path.join(TEMP_ASSETS_FOLDER, '%(title)s.%(ext)s'),
         'progress_hooks': [lambda d: print(f"Downloading: {d['_percent_str']}", end='\r')],
+        'keepvideo': True,  # Keep the video file after post-processing
     }
 
     with YoutubeDL(ydl_opts) as ydl:
@@ -431,22 +435,27 @@ def download_youtube_video(url, files_to_cleanup=[]):
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
             print(f"Video downloaded: {filename}")
-            files_to_cleanup.append(filename)  # Ensure it's added to cleanup list
             
-            # Check for webm files
-            webm_file = filename.rsplit('.', 1)[0] + '.webm'
-            if os.path.exists(webm_file):
-                files_to_cleanup.append(webm_file)
+            # Add all files in TEMP_ASSETS_FOLDER that start with the base filename to cleanup list
+            base_filename = os.path.splitext(os.path.basename(filename))[0]
+            for file in os.listdir(TEMP_ASSETS_FOLDER):
+                if file.startswith(base_filename):
+                    full_path = os.path.join(TEMP_ASSETS_FOLDER, file)
+                    files_to_cleanup.append(full_path)
+                    print(f"Added to cleanup list: {full_path}")
             
             return filename
         except Exception as e:
             print(f"Error downloading YouTube video: {e}")
             return None
         
-def get_image_inputs(args, files_to_cleanup = []):
+def get_image_inputs(args, files_to_cleanup=[]):
     if args.autofill:
         if not args.image:
-            return [generate_image(args.image_description or "A visual representation of audio", "generated_audio")]
+            generated_image = generate_image(args.image_description or "A visual representation of audio", "generated_audio")
+            if generated_image:
+                files_to_cleanup.append(generated_image)
+            return [generated_image]
         elif not args.image.strip():
             raise ValueError("Empty --image argument provided with --autofill. Please provide valid image input(s) or omit the argument.")
         inputs = process_image_input(args.image, args.image_description, files_to_cleanup)
@@ -466,32 +475,42 @@ def get_image_inputs(args, files_to_cleanup = []):
         
         if not file_path and first_input:
             print("Generating initial image...")
-            inputs.append(generate_image(args.image_description or "A visual representation of audio", "generated_audio"))
+            generated_image = generate_image(args.image_description or "A visual representation of audio", "generated_audio")
+            if generated_image:
+                inputs.append(generated_image)
+                files_to_cleanup.append(generated_image)
             first_input = False
         elif not file_path and not first_input:
             break
         else:
-            new_inputs = process_image_input(file_path, args.image_description)
+            new_inputs = process_image_input(file_path, args.image_description, files_to_cleanup)
             if new_inputs:
                 inputs.extend(new_inputs)
                 first_input = False
             else:
                 print("Invalid input. Please try again.")
-                # Don't change first_input here, so we keep the correct prompt
     
     return inputs
 
 def cleanup_files(files_to_remove):
+    print(f"Attempting to clean up {len(files_to_remove)} files:")
     for file in files_to_remove:
         try:
-            os.remove(file)
-            print(f"Removed temporary file: {file}")
+            if os.path.exists(file) and os.path.isfile(file):
+                os.remove(file)
+                print(f"Removed temporary file: {file}")
+            else:
+                print(f"File not found or is not a file: {file}")
         except OSError as e:
             print(f"Error removing file {file}: {e}")
     
-    # Note: We're not removing the temp folder, even if it's empty
+    print(f"Cleanup completed. Temporary folder '{TEMP_ASSETS_FOLDER}' was not removed.")
 
 def get_media_duration(file_path):
+    # Check if the file is an audio file
+    if file_path.endswith(('.wav', '.mp3', '.aac', '.flac', '.ogg', '.m4a')):
+        return get_audio_duration(file_path)
+    
     if not is_video(file_path):
         return 5.0  # Assign a default duration of 5 seconds for images
     cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file_path]
@@ -502,6 +521,17 @@ def get_media_duration(file_path):
         return float(output)
     except ValueError:
         print(f"Warning: Could not determine duration for file {file_path}. Using default duration of 0.")
+        return 0
+
+def get_audio_duration(file_path):
+    cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file_path]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    output = result.stdout.strip()
+    print(f"get_audio_duration: file_path={file_path}, output='{output}'")  # Debugging statement
+    try:
+        return float(output)
+    except ValueError:
+        print(f"Warning: Could not determine duration for audio file {file_path}. Using default duration of 0.")
         return 0
 
 def is_video(file_path):
@@ -537,50 +567,32 @@ def generate_filter_complex(inputs, main_audio_duration):
     image_inputs = [input for input in inputs if not is_video(input)]
     total_video_duration = sum(get_media_duration(video) for video in video_inputs)
 
-    if total_video_duration <= main_audio_duration:
-        # Videos fit within main audio duration
-        remaining_duration = main_audio_duration - total_video_duration
-        image_duration = remaining_duration / max(1, len(image_inputs))
-        
-        for i, input_file in enumerate(inputs):
-            if is_video(input_file):
-                video_duration = get_media_duration(input_file)
-                if video_duration > 0:
-                    filter_complex.append(f"[{i}:v]setpts=PTS-STARTPTS+{current_duration}/TB[v{i}]")
-                    splits.append(f"[v{i}]")
-                    current_duration += video_duration
-            else:
-                # Ensure a minimum duration for images
-                if image_duration <= 0:
-                    image_duration = 5.0
-                filter_complex.append(f"[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,"
-                                      f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,"
-                                      f"setpts=PTS-STARTPTS+{current_duration}/TB,trim=duration={image_duration}[v{i}]")
-                splits.append(f"[v{i}]")
-                current_duration += image_duration
-    else:
-        # Videos exceed main audio duration, treat all inputs equally
-        input_duration = main_audio_duration / len(inputs)
-        for i, input_file in enumerate(inputs):
-            if is_video(input_file):
-                filter_complex.append(f"[{i}:v]setpts=PTS-STARTPTS+{current_duration}/TB,trim=duration={input_duration}[v{i}]")
-            else:
-                filter_complex.append(f"[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,"
-                                      f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,"
-                                      f"setpts=PTS-STARTPTS+{current_duration}/TB,trim=duration={input_duration}[v{i}]")
+    if video_inputs:
+        # Handle videos
+        for i, input_file in enumerate(video_inputs):
+            video_duration = get_media_duration(input_file)
+            loop_count = max(1, int(main_audio_duration / total_video_duration))
+            filter_complex.append(f"[{i}:v]loop={loop_count}:1:0,setpts=PTS-STARTPTS[v{i}]")
             splits.append(f"[v{i}]")
-            current_duration += input_duration
 
-    if splits:
-        filter_complex.append(f"{''.join(splits)}concat=n={len(splits)}:v=1:a=0[outv]")
+        # Concatenate videos
+        filter_complex.append(f"{''.join(splits)}concat=n={len(video_inputs)}:v=1:a=0[outv]")
+    elif image_inputs:
+        # Handle images
+        image_duration = main_audio_duration / len(image_inputs)
+        for i, input_file in enumerate(image_inputs):
+            filter_complex.append(f"[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,"
+                                  f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,"
+                                  f"setpts=PTS-STARTPTS+{current_duration}/TB,trim=duration={image_duration}[v{i}]")
+            splits.append(f"[v{i}]")
+            current_duration += image_duration
+
+        filter_complex.append(f"{''.join(splits)}concat=n={len(image_inputs)}:v=1:a=0[outv]")
     else:
         print("Warning: No valid inputs found for filter complex.")
-        return None  # Ensure we return None if no valid inputs are found
+        return None
 
-    filter_complex_str = ';'.join(filter_complex)
-    print(f"Generated filter_complex: {filter_complex_str}")  # Debugging statement
-
-    return filter_complex_str
+    return ';'.join(filter_complex)
 
 def generate_basic_video(visualization_path, audio_path, output_path):
     # Determine if the input is an image or a video
@@ -613,6 +625,7 @@ def generate_basic_video(visualization_path, audio_path, output_path):
             "-b:v", video_bitrate,
             "-y", output_path
         ]
+        print(f"FFmpeg command: {' '.join(ffmpeg_command)}")
     else:
         # Video-specific processing
         ffmpeg_command = [
@@ -638,7 +651,6 @@ def generate_basic_video(visualization_path, audio_path, output_path):
 
 
 def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music_volume):
-    # Fallback for the basic case
     if len(inputs) == 1 and bg_music_path is None:
         return generate_basic_video(inputs[0], main_audio_path, output_path)
     
@@ -684,7 +696,12 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
     print(f"Generated ffmpeg command: {' '.join(ffmpeg_command)}")  # Debugging statement
 
     try:
-        subprocess.run(ffmpeg_command, check=True)
+        process = subprocess.Popen(ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+        for line in process.stdout:
+            print(line, end='')  # Print each line of ffmpeg output
+        process.wait()
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(process.returncode, ffmpeg_command)
         return True
     except subprocess.CalledProcessError as e:
         print(f"Error generating video: {e}")
@@ -735,7 +752,6 @@ def main():
         if args.image == "generate":
             args.image_description = args.image_description or description or title or "A visual representation of audio"
         image_inputs = get_image_inputs(args, files_to_cleanup)
-        files_to_cleanup.extend([f for f in image_inputs if f.startswith(os.path.abspath(TEMP_ASSETS_FOLDER))])
 
         # Handle background music
         bg_music_path = None
@@ -782,13 +798,14 @@ def main():
 
         # Cleanup temporary files if requested
         if args.cleanup:
+            print("Cleaning up temporary files...")
             cleanup_files(files_to_cleanup)
-        elif not args.autofill:
+        else:
             print("Temporary files were not cleaned up. Use --cleanup flag to remove them in future runs.")
+            print("Files that would be cleaned up:")
+            for file in files_to_cleanup:
+                print(f"  {file}")
 
     except ValueError as e:
         print(f"Error: {str(e)}")
         sys.exit(1)
-
-if __name__ == "__main__":
-    main()
