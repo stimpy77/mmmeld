@@ -1,5 +1,5 @@
 # Image Video Generator
-Creates a video consisting of an image and audio. Can produce speech from text if no audio provided. Can produce an image if no image provided. Audio can come from local file or from YouTube URL.
+Creates a video consisting of an image/video and audio. Can produce speech from text if no audio provided. Can produce an image if no image provided. Audio or image or video can come from local file or from YouTube URL. Multiple images can be provided to create a slideshow. If a video asset is referenced, only the video is used from that asset, not the audio. If multiple videos are provided, they are treated as a sequence and looped. If images and videos are provided, .. LOL well good luck and have fun.
 
 ## Installation:
 
