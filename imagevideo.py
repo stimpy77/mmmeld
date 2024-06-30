@@ -5,7 +5,7 @@ import time
 import re
 import argparse
 from openai import OpenAI
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import requests
 from io import BytesIO
 from tqdm import tqdm
@@ -387,9 +387,9 @@ def download_file(url, prefix="downloaded"):
         return filename
     return None
 
-def process_image_input(image_input, image_description=None):
+def process_image_input(image_input, image_description=None, files_to_cleanup=[]):
     if image_input.lower() == 'generate':
-        return [generate_image(image_description or "A visual representation of audio", "generated_audio")]
+        return [generate_image(image_description or "A visual representation of audio", "generated_audio", files_to_cleanup)]
     
     image_inputs = [input.strip() for input in image_input.split(',') if input.strip()]
     processed_inputs = []
@@ -398,23 +398,58 @@ def process_image_input(image_input, image_description=None):
         if os.path.isfile(input):
             processed_inputs.append(input)
         elif input.startswith(('http://', 'https://')):
-            downloaded_file = download_file(input)
-            if downloaded_file:
-                processed_inputs.append(downloaded_file)
+            if "youtube.com" in input or "youtu.be" in input:
+                print(f"Downloading video from YouTube: {input}")
+                downloaded_video = download_youtube_video(input, files_to_cleanup)
+                if downloaded_video:
+                    processed_inputs.append(downloaded_video)
+                else:
+                    print(f"Failed to download video: {input}")
             else:
-                print(f"Failed to download: {input}")
+                downloaded_file = download_file(input)
+                if downloaded_file:
+                    processed_inputs.append(downloaded_file)
+                    files_to_cleanup.append(downloaded_file)  # Ensure it's added to cleanup list
+                else:
+                    print(f"Failed to download: {input}")
         else:
             print(f"Invalid input: {input}")
     
     return processed_inputs
 
-def get_image_inputs(args):
+def download_youtube_video(url, files_to_cleanup=[]):
+    ensure_temp_folder()
+    ydl_opts = {
+        'format': 'bestvideo[ext=webm]+bestaudio[ext=webm]/bestvideo+bestaudio/best',
+        'postprocessors': [],
+        'outtmpl': os.path.join(TEMP_ASSETS_FOLDER, '%(title)s.%(ext)s'),
+        'progress_hooks': [lambda d: print(f"Downloading: {d['_percent_str']}", end='\r')],
+    }
+
+    with YoutubeDL(ydl_opts) as ydl:
+        try:
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            print(f"Video downloaded: {filename}")
+            files_to_cleanup.append(filename)  # Ensure it's added to cleanup list
+            
+            # Check for webm files
+            webm_file = filename.rsplit('.', 1)[0] + '.webm'
+            if os.path.exists(webm_file):
+                files_to_cleanup.append(webm_file)
+            
+            return filename
+        except Exception as e:
+            print(f"Error downloading YouTube video: {e}")
+            return None
+        
+def get_image_inputs(args, files_to_cleanup = []):
     if args.autofill:
         if not args.image:
             return [generate_image(args.image_description or "A visual representation of audio", "generated_audio")]
         elif not args.image.strip():
             raise ValueError("Empty --image argument provided with --autofill. Please provide valid image input(s) or omit the argument.")
-        inputs = process_image_input(args.image, args.image_description)
+        inputs = process_image_input(args.image, args.image_description, files_to_cleanup)
         if not inputs:
             raise ValueError("No valid image inputs found with --autofill. Please provide valid image input(s).")
         return inputs
@@ -547,38 +582,60 @@ def generate_filter_complex(inputs, main_audio_duration):
 
     return filter_complex_str
 
-def generate_basic_video(image_path, audio_path, output_path):
-    # Get the dimensions of the input image
-    with Image.open(image_path) as img:
-        width, height = img.size
+def generate_basic_video(visualization_path, audio_path, output_path):
+    # Determine if the input is an image or a video
+    is_image = False
+    try:
+        with Image.open(visualization_path) as img:
+            is_image = True
+    except UnidentifiedImageError:
+        pass
+    
+    if is_image:
+        # Image-specific processing
+        with Image.open(visualization_path) as img:
+            width, height = img.size
+        resolution = f"{width}x{height}"
+        video_bitrate = "5M"
+        audio_bitrate = "320k"
+        ffmpeg_command = [
+            "ffmpeg",
+            "-loop", "1",
+            "-i", visualization_path,
+            "-i", audio_path,
+            "-c:v", "libx264",
+            "-tune", "stillimage",
+            "-c:a", "aac",
+            "-b:a", audio_bitrate,
+            "-pix_fmt", "yuv420p",
+            "-shortest",
+            "-vf", f"scale={resolution}",
+            "-b:v", video_bitrate,
+            "-y", output_path
+        ]
+    else:
+        # Video-specific processing
+        ffmpeg_command = [
+            "ffmpeg",
+            "-stream_loop", "-1",  # Loop the video indefinitely
+            "-i", visualization_path,
+            "-i", audio_path,
+            "-map", "0:v",  # Use video from visualization_path
+            "-map", "1:a",  # Use audio from audio_path
+            "-c:v", "libx264",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            "-y", output_path
+        ]
 
-    # Set the resolution based on the image dimensions
-    resolution = f"{width}x{height}"
-    video_bitrate = "5M"
-    audio_bitrate = "320k"
-    
-    ffmpeg_command = [
-        "ffmpeg",
-        "-loop", "1",
-        "-i", image_path,
-        "-i", audio_path,
-        "-c:v", "libx264",
-        "-tune", "stillimage",
-        "-c:a", "aac",
-        "-b:a", audio_bitrate,
-        "-pix_fmt", "yuv420p",
-        "-shortest",
-        "-vf", f"scale={resolution}",
-        "-b:v", video_bitrate,
-        "-y", output_path
-    ]
-    
     try:
         subprocess.run(ffmpeg_command, check=True)
         return True
     except subprocess.CalledProcessError as e:
         print(f"Error generating video: {e}")
         return False
+
 
 def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music_volume):
     # Fallback for the basic case
@@ -677,7 +734,7 @@ def main():
             args.image = "generate"
         if args.image == "generate":
             args.image_description = args.image_description or description or title or "A visual representation of audio"
-        image_inputs = get_image_inputs(args)
+        image_inputs = get_image_inputs(args, files_to_cleanup)
         files_to_cleanup.extend([f for f in image_inputs if f.startswith(os.path.abspath(TEMP_ASSETS_FOLDER))])
 
         # Handle background music
