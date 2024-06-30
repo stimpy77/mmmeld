@@ -598,12 +598,13 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
     if not sanitized_output_path.lower().endswith('.mp4'):
         sanitized_output_path += '.mp4'
 
-    # Add the main audio to the final video with silence margins
+    # Add the main audio to the final video with silence margins and visual fade out
     final_command = [
         "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_file,
         "-i", main_audio_path,
+        "-vf", f"fade=t=out:st={total_duration-2}:d=2",
         "-af", "adelay=500|500,apad=pad_dur=2",
-        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+        "-c:v", "libx264", "-c:a", "aac", "-b:a", "192k",
         "-shortest", sanitized_output_path
     ]
     subprocess.run(final_command, check=True)
