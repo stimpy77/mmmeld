@@ -65,6 +65,8 @@ Examples:
         sys.exit(0)
     
     return args
+def create_temp_file(filename):
+    return os.path.join(TEMP_ASSETS_FOLDER, filename)
 
 def get_multiline_input(prompt):
     print(prompt)
