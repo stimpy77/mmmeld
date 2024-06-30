@@ -426,21 +426,28 @@ def get_image_inputs(args):
     first_input = True
     while True:
         if first_input:
-            file_path = input("Enter path/URL to image/video file (press Enter to generate): ").strip()
-            if not file_path:
-                print("Generating initial image...")
-                inputs.append(generate_image(args.image_description or "A visual representation of audio", "generated_audio"))
-            else:
-                inputs.extend(process_image_input(file_path))
-            first_input = False
+            prompt = "Enter path/URL to image/video file (press Enter to generate): "
         else:
-            file_path = input("Enter path/URL to additional image/video file (press Enter to finish): ").strip()
-            if not file_path:
-                break
-            inputs.extend(process_image_input(file_path))
+            prompt = "Enter path/URL to additional image/video file (press Enter to finish): "
+        
+        file_path = input(prompt).strip()
+        
+        if not file_path and first_input:
+            print("Generating initial image...")
+            inputs.append(generate_image(args.image_description or "A visual representation of audio", "generated_audio"))
+            first_input = False
+        elif not file_path and not first_input:
+            break
+        else:
+            new_inputs = process_image_input(file_path)
+            if new_inputs:
+                inputs.extend(new_inputs)
+                first_input = False
+            else:
+                print("Invalid input. Please try again.")
+                # Don't change first_input here, so we keep the correct prompt
     
     return inputs
-
 
 def cleanup_files(files_to_remove):
     for file in files_to_remove:
