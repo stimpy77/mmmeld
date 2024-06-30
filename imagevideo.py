@@ -574,22 +574,16 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
 
     # Determine how to handle the inputs based on their type and durations
     if len(video_inputs) == 1 and not image_inputs:
-        # Single video, no images
         temp_video_parts = [create_video_part(video_inputs[0], total_duration, files_to_cleanup)]
     elif len(video_inputs) > 1 and not image_inputs:
-        # Multiple videos, no images
         combined_duration = sum([get_media_duration(video) for video in video_inputs])
         if combined_duration <= total_duration:
-            # Loop the sequence of videos
             temp_video_parts = create_looped_video_sequence(video_inputs, total_duration, files_to_cleanup)
         else:
-            # Cut the sequence of videos to fit the total duration
             temp_video_parts = create_cut_video_sequence(video_inputs, total_duration, files_to_cleanup)
     elif not video_inputs and image_inputs:
-        # Only images
         temp_video_parts = create_image_slideshow(image_inputs, total_duration, files_to_cleanup)
     else:
-        # Mixed videos and images
         temp_video_parts = create_mixed_media_sequence(video_inputs, image_inputs, total_duration, files_to_cleanup)
 
     # Concatenate all parts
@@ -604,10 +598,11 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
     if not sanitized_output_path.lower().endswith('.mp4'):
         sanitized_output_path += '.mp4'
 
-    # Add the main audio to the final video
+    # Add the main audio to the final video with silence margins
     final_command = [
         "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_file,
         "-i", main_audio_path,
+        "-af", "adelay=500|500,apad=pad_dur=2",
         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
         "-shortest", sanitized_output_path
     ]
