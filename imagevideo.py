@@ -469,30 +469,55 @@ def is_video(file_path):
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     return int(result.stdout.strip()) > 0
 
+"""
+This function generate_filter_complex implements the following behavior:
+
+- If the total duration of all videos is less than or equal to the main audio duration:
+  - Videos are used at their full length without truncation.
+  - Remaining time is equally distributed among images.
+- If the total duration of all videos exceeds the main audio duration:
+  - All inputs (both videos and images) are treated equally and their durations are adjusted to fit the main audio duration.
+- If there are only videos and they fit within the main audio duration, they will effectively loop as the function will create a filter complex that uses their full durations, and the generate_video function already includes the -shortest option which will loop the video input if it's shorter than the audio.
+
+This implementation ensures that:
+
+- Videos are prioritized and shown in full if they fit within the main audio duration.
+- Images are used to fill any remaining time if videos don't occupy the full duration.
+- All inputs are treated equally if videos exceed the main audio duration.
+"""
 def generate_filter_complex(inputs, main_audio_duration):
     filter_complex = []
     splits = []
     current_duration = 0
-    total_image_duration = main_audio_duration
-    video_count = sum(1 for input in inputs if is_video(input))
-    image_count = len(inputs) - video_count
+    video_inputs = [input for input in inputs if is_video(input)]
+    image_inputs = [input for input in inputs if not is_video(input)]
+    total_video_duration = sum(get_media_duration(video) for video in video_inputs)
 
-    for input in inputs:
-        if is_video(input):
-            video_duration = get_media_duration(input)
-            total_image_duration -= video_duration
-    
-    image_duration = total_image_duration / max(1, image_count)
-
-    for i, input_file in enumerate(inputs):
-        if is_video(input_file):
-            filter_complex.append(f"[{i}:v]setpts=PTS-STARTPTS+{current_duration}/TB[v{i}]")
+    if total_video_duration <= main_audio_duration:
+        # Videos fit within main audio duration
+        remaining_duration = main_audio_duration - total_video_duration
+        image_duration = remaining_duration / max(1, len(image_inputs))
+        
+        for i, input_file in enumerate(inputs):
+            if is_video(input_file):
+                video_duration = get_media_duration(input_file)
+                filter_complex.append(f"[{i}:v]setpts=PTS-STARTPTS+{current_duration}/TB[v{i}]")
+                splits.append(f"[v{i}]")
+                current_duration += video_duration
+            else:
+                filter_complex.append(f"[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,setpts=PTS-STARTPTS+{current_duration}/TB,trim=duration={image_duration}[v{i}]")
+                splits.append(f"[v{i}]")
+                current_duration += image_duration
+    else:
+        # Videos exceed main audio duration, treat all inputs equally
+        input_duration = main_audio_duration / len(inputs)
+        for i, input_file in enumerate(inputs):
+            if is_video(input_file):
+                filter_complex.append(f"[{i}:v]setpts=PTS-STARTPTS+{current_duration}/TB,trim=duration={input_duration}[v{i}]")
+            else:
+                filter_complex.append(f"[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,setpts=PTS-STARTPTS+{current_duration}/TB,trim=duration={input_duration}[v{i}]")
             splits.append(f"[v{i}]")
-            current_duration += get_media_duration(input_file)
-        else:
-            filter_complex.append(f"[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,setpts=PTS-STARTPTS+{current_duration}/TB,trim=duration={image_duration}[v{i}]")
-            splits.append(f"[v{i}]")
-            current_duration += image_duration
+            current_duration += input_duration
 
     filter_complex.append(f"{''.join(splits)}concat=n={len(inputs)}:v=1:a=0[outv]")
     
