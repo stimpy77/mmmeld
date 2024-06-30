@@ -1,3 +1,73 @@
+"""
+Video Generator Script for Audio-Backed Image/Video Collages
+originally by Jon Davis (jon@jondavis.net) on 2024-06-28.
+
+This script generates a video from a collection of images and an audio file.
+The audio file determines the total duration of the video, and the image(s)
+and/or videos are combined to create a visual representation of the audio.
+Audio can be generated using text-to-speech (ElevenLabs or OpenAI).
+Images can be generated using DALL-E prompts from OpenAI.
+The whole thing can be done interactively or via command-line arguments.
+
+Video Generation Rules and Notes:
+
+1. Main audio duration + margins (0.5s start, 2s end) sets total time.
+
+2. Input methods:
+   - Command-line: Comma-separated list of file paths
+   - Interactive prompts: First empty prompt leads to auto-generation,
+     subsequent empty prompts conclude the list
+
+3. Single image: Shown for entire duration.
+
+4. Single video: Loops if shorter than audio, cut off if longer.
+
+5. Multiple videos, no images:
+   a) If total <= audio time: Play in sequence, then loop.
+   b) If total > audio time: Play in sequence, cut off at audio end.
+
+6. Videos + images, total video time < audio time:
+   a) Play videos once in sequence.
+   b) Distribute remaining time equally among images.
+   Example: 5-min audio, 2 images, 1-min video, 2 images:
+   1min img1, 1min img2, 1min video, 1min img3, 1min img4
+
+7. Videos + images, total video time >= audio time:
+   Treat all inputs equally, adjust durations to fit audio time.
+
+8. Only images: Equal time for each, no looping.
+
+9. Image + video:
+   a) If video shorter than audio: Image shown first, then video.
+   b) If video longer than audio: Minimum 5s for image, then video (cut off).
+
+10. Background music: Independent layer, loops and fades with main audio.
+
+11. No transitions or effects for now.
+
+12. Minimum support: 1 audio (e.g., TTS), 1 image (e.g., generated).
+
+13. Videos prioritized if they fit within audio duration.
+
+14. Images fill remaining time if videos don't occupy full duration.
+
+Implementation Notes:
+- Stick with ffmpeg for now.
+- Consider moviepy for more complex features in the future.
+- No overlays or complex transitions at this point.
+
+Future Considerations:
+- Custom durations for images/videos
+- Transition effects
+- 'Ken Burns' effect
+- Option to use video length instead of audio for total duration
+- Command-line flag for exact total timeline time
+- Allowing users to specify custom durations for each image/video
+
+Remember: The goal is a simple way for users to create a collage of 
+audio-backed images and/or videos, prioritizing audio content for platforms 
+like YouTube that require visuals.
+"""
 import math
 import os
 import sys
@@ -547,23 +617,6 @@ def is_video(file_path):
     if output.isdigit():
         return int(output) > 0
     return False
-
-"""
-This function below implements the following behavior:
-
-- If the total duration of all videos is less than or equal to the main audio duration:
-  - Videos are used at their full length without truncation.
-  - Remaining time is equally distributed among images.
-- If the total duration of all videos exceeds the main audio duration:
-  - All inputs (both videos and images) are treated equally and their durations are adjusted to fit the main audio duration.
-- If there are only videos and they fit within the main audio duration, they will effectively loop as the function will create a filter complex that uses their full durations, and the generate_video function already includes the -shortest option which will loop the video input if it's shorter than the audio.
-
-This implementation ensures that:
-
-- Videos are prioritized and shown in full if they fit within the main audio duration.
-- Images are used to fill any remaining time if videos don't occupy the full duration.
-- All inputs are treated equally if videos exceed the main audio duration.
-"""
 
 def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music_volume):
     main_audio_duration = get_media_duration(main_audio_path)
