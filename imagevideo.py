@@ -1,3 +1,4 @@
+import math
 import os
 import sys
 import subprocess
@@ -567,6 +568,7 @@ This implementation ensures that:
 def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music_volume):
     main_audio_duration = get_media_duration(main_audio_path)
     total_duration = main_audio_duration + 2.5  # Adding 0.5s lead-in and 2s tail
+    fade_duration = 2  # Duration of the fade-out effect
 
     video_inputs = [input for input in inputs if is_video(input)]
     image_inputs = [input for input in inputs if not is_video(input)]
@@ -600,15 +602,44 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
     if not sanitized_output_path.lower().endswith('.mp4'):
         sanitized_output_path += '.mp4'
 
-    # Add the main audio to the final video with silence margins and visual fade out
+    # Prepare the filter complex for mixing audio
+    filter_complex = []
+    input_count = 2  # Start with 2 for video and main audio
+
+    # Add the main audio to the final video with silence margins
+    filter_complex.append(f"[1:a]adelay=500|500,apad=pad_dur=2[main_audio]")
+
+    # If background music is provided, add it to the mix with fade out
+    if bg_music_path:
+        input_count += 1
+        bg_music_duration = get_media_duration(bg_music_path)
+        loop_count = math.ceil(total_duration / bg_music_duration)
+        fade_start = main_audio_duration + 0.5  # Start fade when main audio ends (including lead-in)
+        
+        filter_complex.append(f"[{input_count-1}:a]aloop=loop={loop_count-1}:size={int(bg_music_duration*48000)}[looped_bg]")
+        filter_complex.append(f"[looped_bg]volume={bg_music_volume},afade=t=out:st={fade_start}:d={fade_duration}[bg_music]")
+        filter_complex.append(f"[main_audio][bg_music]amix=inputs=2:duration=longest[final_audio]")
+    else:
+        filter_complex.append("[main_audio]acopy[final_audio]")
+
+    # Prepare the final FFmpeg command
     final_command = [
         "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_file,
         "-i", main_audio_path,
-        "-vf", f"fade=t=out:st={total_duration-2}:d=2",
-        "-af", "adelay=500|500,apad=pad_dur=2",
+    ]
+
+    # Add background music input if provided
+    if bg_music_path:
+        final_command.extend(["-i", bg_music_path])
+
+    final_command.extend([
+        "-filter_complex", ";".join(filter_complex),
+        "-map", "0:v", "-map", "[final_audio]",
+        "-vf", f"fade=t=out:st={total_duration-fade_duration}:d={fade_duration}",
         "-c:v", "libx264", "-c:a", "aac", "-b:a", "192k",
         "-shortest", sanitized_output_path
-    ]
+    ])
+
     print(f"Final FFmpeg command: {' '.join(final_command)}")
     subprocess.run(final_command, check=True)
 
@@ -617,7 +648,6 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
         os.remove(part)
 
     return True
-
 
 def create_image_slideshow(image_inputs, total_duration, files_to_cleanup):
     temp_slideshow_path = os.path.join(TEMP_ASSETS_FOLDER, "temp_slideshow.mp4")
