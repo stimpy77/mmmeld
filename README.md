@@ -1,5 +1,5 @@
 # Image Video Generator
-Creates a video consisting of an image and audio. Can produce speech from text if no audio provided. Can produce an image if no image provided. Audio can come from local file or from YouTube URL.
+Creates a video consisting of an image/video and provided audio. The origianl purpose was to "video-ize" a music file. Can produce speech from text if no audio provided. Can produce an image if no image provided. Audio or image or video can come from local file or from YouTube URL. Multiple images can be provided to create a slideshow. If a video asset is referenced, only the video is used from that asset, not the audio. If multiple videos are provided, they are treated as a sequence and looped. If images and videos are provided, .. LOL well good luck and have fun.
 
 ## Installation:
 
@@ -20,7 +20,7 @@ Answer the questions.
 
 ``Enter the path to the audio file, YouTube video URL, or press Enter to generate speech:`` **``myaudio.wav``**
 
-``Enter the path to the image (or press Enter to generate one):`` **``myimage.png``**
+``Enter path/URL to image/video file (press Enter to generate):`` **``myimage.png``**
 
 ``Enter the path for the output video file (press Enter for default: myvideo.mp4):`` **``My Fantastic Video.mp4``**
 
@@ -30,17 +30,18 @@ You don't have to be prompted.
 
 ```
 ❯ python .\imagevideo.py --help
-usage: imagevideo.py [-h] [--audio AUDIO] [--image IMAGE] [--output OUTPUT] [--text TEXT]
+usage: imagevideo.py [-h] [--image IMAGE] [--audio AUDIO] [--output OUTPUT] [--text TEXT]
                      [--image_description IMAGE_DESCRIPTION] [--bg-music BG_MUSIC] [--bg-music-volume BG_MUSIC_VOLUME]
                      [--cleanup] [--autofill] [--voice-id VOICE_ID] [--openai-key OPENAI_KEY]
                      [--elevenlabs-key ELEVENLABS_KEY]
 
-Generate a video from audio and image, with options for text-to-speech, image generation, and background music.
+Generate a video from audio and image/video, with options for text-to-speech, image generation, and background music.
 
 options:
   -h, --help            show this help message and exit
+  --image IMAGE         Path to image/video file(s), URL(s), or 'generate'. Use comma-separated list for multiple
+                        inputs.
   --audio AUDIO         Path to audio file, YouTube URL, or 'generate' for text-to-speech.
-  --image IMAGE         Path to image file or 'generate' to create one.
   --output OUTPUT       Path for the output video file. Default is based on audio filename.
   --text TEXT           Text for speech generation (used if audio is 'generate').
   --image_description IMAGE_DESCRIPTION
@@ -59,14 +60,14 @@ API Keys:
                         ElevenLabs API key. Default: Use ELEVENLABS_API_KEY environment variable.
 
 Examples:
-  Generate video from local audio and image files:
-    python imagevideo.py --audio path/to/audio.mp3 --image path/to/image.png
+  Generate video from local audio and multiple image/video files:
+    python imagevideo.py --audio path/to/audio.mp3 --image path/to/image1.png,path/to/video1.mp4,path/to/image2.jpg
 
-  Generate video with text-to-speech, generated image, and background music:
-    python imagevideo.py --audio generate --text "Hello, world!" --image generate --image_description "A sunny day" --bg-music path/to/music.mp3
+  Generate video with text-to-speech, generated image, additional images/videos, and background music:
+    python imagevideo.py --audio generate --text "Hello, world!" --image generate,path/to/video1.mp4,https://example.com/image.jpg --bg-music path/to/music.mp3
 
-  Download YouTube audio, generate image, and add background music from YouTube:
-    python imagevideo.py --audio https://www.youtube.com/watch?v=dQw4w9WgXcQ --image generate --bg-music https://www.youtube.com/watch?v=background_music_id
+  Download YouTube audio, use multiple images/videos, and add background music from YouTube:
+    python imagevideo.py --audio https://www.youtube.com/watch?v=dQw4w9WgXcQ --image path/to/image1.png,https://example.com/video.mp4 --bg-music https://www.youtube.com/watch?v=background_music_id
 
   Generate video with specific ElevenLabs voice ID:
     python imagevideo.py --audio generate --text "Hello, world!" --voice-id your_voice_id_here
