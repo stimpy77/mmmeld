@@ -20,7 +20,7 @@ Answer the questions.
 
 ``Enter the path to the audio file, YouTube video URL, or press Enter to generate speech:`` **``myaudio.wav``**
 
-``Enter the path to the image (or press Enter to generate one):`` **``myimage.png``**
+``Enter path/URL to image/video file (press Enter to generate):`` **``myimage.png``**
 
 ``Enter the path for the output video file (press Enter for default: myvideo.mp4):`` **``My Fantastic Video.mp4``**
 
