@@ -582,7 +582,7 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
         else:
             temp_video_parts = create_cut_video_sequence(video_inputs, total_duration, files_to_cleanup)
     elif not video_inputs and image_inputs:
-        temp_video_parts = create_image_slideshow(image_inputs, total_duration, files_to_cleanup)
+        temp_video_parts = [create_image_slideshow(image_inputs, total_duration, files_to_cleanup)]
     else:
         temp_video_parts = create_mixed_media_sequence(video_inputs, image_inputs, total_duration, files_to_cleanup)
 
@@ -607,6 +607,7 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
         "-c:v", "libx264", "-c:a", "aac", "-b:a", "192k",
         "-shortest", sanitized_output_path
     ]
+    print(f"Final FFmpeg command: {' '.join(final_command)}")
     subprocess.run(final_command, check=True)
 
     # Clean up temporary files
@@ -614,6 +615,31 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
         os.remove(part)
 
     return True
+
+
+def create_image_slideshow(image_inputs, total_duration, files_to_cleanup):
+    temp_slideshow_path = os.path.join(TEMP_ASSETS_FOLDER, "temp_slideshow.mp4")
+    files_to_cleanup.append(temp_slideshow_path)
+
+    # Get the dimensions of the first image
+    with Image.open(image_inputs[0]) as img:
+        width, height = img.size
+
+    absolute_image_path = os.path.abspath(image_inputs[0])
+
+    command = [
+        "ffmpeg", "-y",
+        "-loop", "1",  # Loop the image
+        "-i", absolute_image_path,
+        "-vf", f"scale={width}:{height},format=yuv420p,fade=t=out:st={total_duration-2}:d=2",
+        "-t", str(total_duration),  # Set the total duration for the slideshow
+        "-pix_fmt", "yuv420p",  # Ensure the pixel format is correct
+        temp_slideshow_path
+    ]
+    print(f"FFmpeg command: {' '.join(command)}")
+    subprocess.run(command, check=True)
+
+    return temp_slideshow_path
 
 def create_video_part(video_path, duration, files_to_cleanup):
     temp_output = os.path.join(TEMP_ASSETS_FOLDER, sanitize_filename(f"temp_{os.path.basename(video_path)}.mp4"))
@@ -708,7 +734,7 @@ def main():
     print("Entering main function...")
     args = parse_arguments()
     print("Arguments parsed...")
-    
+
     # Set API keys if provided
     if args.openai_key:
         os.environ["OPENAI_API_KEY"] = args.openai_key
@@ -811,3 +837,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
