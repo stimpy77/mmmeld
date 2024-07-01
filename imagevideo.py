@@ -35,6 +35,11 @@ Video Generation Rules and Notes:
 7. Videos + images, total video time >= audio time:
    Treat all inputs equally, adjust durations to fit audio time.
 
+   If you have image(s) and video(s) in that sequence then the sequencing 
+   should be such that the video input(s) start at the tail end of the total 
+   timespan minus the video input timespan, so that the video is shown in 
+   full, and the image(s) just fills in what's left.
+
 8. Only images: Equal time for each, no looping.
 
 9. Image + video:
@@ -68,6 +73,7 @@ Remember: The goal is a simple way for users to create a collage of
 audio-backed images and/or videos, prioritizing audio content for platforms 
 like YouTube that require visuals.
 """
+import logging
 import math
 import os
 import sys
@@ -87,6 +93,8 @@ TEMP_ASSETS_FOLDER = "temp_assets"
 MAX_FILENAME_LENGTH = 100
 ELEVENLABS_VOICE_ID = "WWr4C8ld745zI3BiA8n7"
 DEFAULT_BG_MUSIC_VOLUME = 0.2  # 20% volume
+
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -523,19 +531,20 @@ def download_youtube_video(url, files_to_cleanup):
             return None
         
 def get_image_inputs(args, files_to_cleanup=[]):
-    if args.autofill:
-        if not args.image:
-            generated_image = generate_image(args.image_description or "A visual representation of audio", "generated_audio")
-            if generated_image:
-                files_to_cleanup.append(generated_image)
-            return [generated_image]
-        elif not args.image.strip():
-            raise ValueError("Empty --image argument provided with --autofill. Please provide valid image input(s) or omit the argument.")
+    if args.image:
+        # Process the command-line argument
         inputs = process_image_input(args.image, args.image_description, files_to_cleanup)
         if not inputs:
-            raise ValueError("No valid image inputs found with --autofill. Please provide valid image input(s).")
+            raise ValueError("No valid image inputs found. Please provide valid image input(s).")
         return inputs
     
+    if args.autofill:
+        generated_image = generate_image(args.image_description or "A visual representation of audio", "generated_audio")
+        if generated_image:
+            files_to_cleanup.append(generated_image)
+        return [generated_image]
+    
+    # If no command-line argument and not autofill, proceed with interactive prompts
     inputs = []
     first_input = True
     while True:
@@ -576,7 +585,6 @@ def cleanup_files(files_to_remove):
                 print(f"File not found or is not a file: {file}")
         except OSError as e:
             print(f"Error removing file {file}: {e}")
-    
     print(f"Cleanup completed. Temporary folder '{TEMP_ASSETS_FOLDER}' was not removed.")
 
 def get_media_duration(file_path):
@@ -608,7 +616,8 @@ def get_audio_duration(file_path):
         return 0
 
 def is_video(file_path):
-    if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+    image_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.avif', '.tiff', '.tif')
+    if file_path.lower().endswith(image_extensions):
         return False
     cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_packets", "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", file_path]
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
@@ -621,27 +630,24 @@ def is_video(file_path):
 def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music_volume):
     main_audio_duration = get_media_duration(main_audio_path)
     total_duration = main_audio_duration + 2.5  # Adding 0.5s lead-in and 2s tail
-    fade_duration = 2  # Duration of the fade-out effect
-
-    video_inputs = [input for input in inputs if is_video(input)]
-    image_inputs = [input for input in inputs if not is_video(input)]
+    fade_duration = 2.0  # Define fade duration
+    logging.debug(f"Main audio duration: {main_audio_duration}")
+    logging.debug(f"Total video duration: {total_duration}")
+    logging.debug(f"Fade duration: {fade_duration}")
 
     ensure_temp_folder()
     files_to_cleanup = []
 
-    # Determine how to handle the inputs based on their type and durations
-    if len(video_inputs) == 1 and not image_inputs:
-        temp_video_parts = [create_video_part(video_inputs[0], total_duration, files_to_cleanup)]
-    elif len(video_inputs) > 1 and not image_inputs:
-        combined_duration = sum([get_media_duration(video) for video in video_inputs])
-        if combined_duration <= total_duration:
-            temp_video_parts = create_looped_video_sequence(video_inputs, total_duration, files_to_cleanup)
-        else:
-            temp_video_parts = create_cut_video_sequence(video_inputs, total_duration, files_to_cleanup)
-    elif not video_inputs and image_inputs:
-        temp_video_parts = [create_image_slideshow(image_inputs, total_duration, files_to_cleanup)]
-    else:
-        temp_video_parts = create_mixed_media_sequence(video_inputs, image_inputs, total_duration, files_to_cleanup)
+    # Create the visual sequence
+    temp_video_parts = create_visual_sequence(inputs, total_duration, files_to_cleanup)
+
+    # Log the created parts
+    total_parts_duration = 0
+    for i, part in enumerate(temp_video_parts):
+        part_duration = get_media_duration(part)
+        total_parts_duration += part_duration
+        logging.debug(f"Part {i}: {part} - Duration: {part_duration}")
+    logging.debug(f"Total duration of all parts: {total_parts_duration}")
 
     # Concatenate all parts
     concat_file = os.path.join(TEMP_ASSETS_FOLDER, "concat_list.txt")
@@ -655,25 +661,26 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
     if not sanitized_output_path.lower().endswith('.mp4'):
         sanitized_output_path += '.mp4'
 
-    # Prepare the filter complex for mixing audio
+    # Prepare the filter complex for mixing audio and applying video fade-out
     filter_complex = []
-    input_count = 2  # Start with 2 for video and main audio
 
     # Add the main audio to the final video with silence margins
     filter_complex.append(f"[1:a]adelay=500|500,apad=pad_dur=2[main_audio]")
 
     # If background music is provided, add it to the mix with fade out
     if bg_music_path:
-        input_count += 1
         bg_music_duration = get_media_duration(bg_music_path)
         loop_count = math.ceil(total_duration / bg_music_duration)
         fade_start = main_audio_duration + 0.5  # Start fade when main audio ends (including lead-in)
         
-        filter_complex.append(f"[{input_count-1}:a]aloop=loop={loop_count-1}:size={int(bg_music_duration*48000)}[looped_bg]")
+        filter_complex.append(f"[2:a]aloop=loop={loop_count-1}:size={int(bg_music_duration*48000)}[looped_bg]")
         filter_complex.append(f"[looped_bg]volume={bg_music_volume},afade=t=out:st={fade_start}:d={fade_duration}[bg_music]")
         filter_complex.append(f"[main_audio][bg_music]amix=inputs=2:duration=longest[final_audio]")
     else:
         filter_complex.append("[main_audio]acopy[final_audio]")
+
+    # Apply video fade-out
+    filter_complex.append(f"[0:v]fade=t=out:st={total_duration-fade_duration}:d={fade_duration}[final_video]")
 
     # Prepare the final FFmpeg command
     final_command = [
@@ -687,44 +694,86 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
 
     final_command.extend([
         "-filter_complex", ";".join(filter_complex),
-        "-map", "0:v", "-map", "[final_audio]",
-        "-vf", f"fade=t=out:st={total_duration-fade_duration}:d={fade_duration}",
+        "-map", "[final_video]", "-map", "[final_audio]",
         "-c:v", "libx264", "-c:a", "aac", "-b:a", "192k",
-        "-shortest", sanitized_output_path
+        "-t", str(total_duration),
+        sanitized_output_path
     ])
 
-    print(f"Final FFmpeg command: {' '.join(final_command)}")
+    logging.debug(f"Final FFmpeg command: {' '.join(final_command)}")
     subprocess.run(final_command, check=True)
 
     # Clean up temporary files
-    for part in files_to_cleanup:
-        os.remove(part)
+    cleanup_files(files_to_cleanup)
 
     return True
 
-def create_image_slideshow(image_inputs, total_duration, files_to_cleanup):
-    temp_slideshow_path = os.path.join(TEMP_ASSETS_FOLDER, "temp_slideshow.mp4")
-    files_to_cleanup.append(temp_slideshow_path)
+def create_visual_sequence(inputs, total_duration, files_to_cleanup):
+    logging.debug(f"Starting create_visual_sequence with total_duration: {total_duration}")
+    temp_video_parts = []
+    video_inputs = [input for input in inputs if is_video(input)]
+    image_inputs = [input for input in inputs if not is_video(input)]
 
-    # Get the dimensions of the first image
-    with Image.open(image_inputs[0]) as img:
-        width, height = img.size
+    logging.debug(f"Video inputs: {video_inputs}")
+    logging.debug(f"Image inputs: {image_inputs}")
 
-    absolute_image_path = os.path.abspath(image_inputs[0])
+    total_video_duration = sum(get_media_duration(video) for video in video_inputs)
+    logging.debug(f"Total video duration: {total_video_duration}")
 
-    command = [
+    image_duration = max(0, total_duration - total_video_duration)
+    logging.debug(f"Image duration: {image_duration}")
+
+    if image_inputs and image_duration > 0:
+        duration_per_image = image_duration / len(image_inputs)
+        for image in image_inputs:
+            logging.debug(f"Adding image: {image} with duration: {duration_per_image}")
+            temp_output = create_image_part(image, duration_per_image, files_to_cleanup)
+            temp_video_parts.append(temp_output)
+
+    video_start_time = image_duration
+    for video in video_inputs:
+        video_duration = min(get_media_duration(video), total_duration - video_start_time)
+        logging.debug(f"Adding video: {video} with duration: {video_duration}, starting at: {video_start_time}")
+        temp_output = create_video_part(video, video_duration, files_to_cleanup)
+        temp_video_parts.append(temp_output)
+        video_start_time += video_duration
+
+    logging.debug(f"Number of parts in sequence: {len(temp_video_parts)}")
+    return temp_video_parts
+
+def create_looped_video(video_path, target_duration, loop_count, files_to_cleanup):
+    temp_output = os.path.join(TEMP_ASSETS_FOLDER, f"temp_looped_{os.path.basename(video_path)}")
+    ffmpeg_command = [
         "ffmpeg", "-y",
-        "-loop", "1",  # Loop the image
-        "-i", absolute_image_path,
-        "-vf", f"scale={width}:{height},format=yuv420p,fade=t=out:st={total_duration-2}:d=2",
-        "-t", str(total_duration),  # Set the total duration for the slideshow
-        "-pix_fmt", "yuv420p",  # Ensure the pixel format is correct
-        temp_slideshow_path
+        "-stream_loop", str(loop_count - 1),
+        "-i", video_path,
+        "-t", str(target_duration),
+        "-c", "copy",
+        temp_output
     ]
-    print(f"FFmpeg command: {' '.join(command)}")
-    subprocess.run(command, check=True)
+    subprocess.run(ffmpeg_command, check=True)
+    files_to_cleanup.append(temp_output)
+    return temp_output
 
-    return temp_slideshow_path
+
+def create_image_part(image_path, duration, files_to_cleanup):
+    temp_output = os.path.join(TEMP_ASSETS_FOLDER, sanitize_filename(f"temp_{os.path.basename(image_path)}.mp4"))
+    
+    ffmpeg_command = [
+        "ffmpeg", "-y",
+        "-loop", "1",
+        "-i", image_path,
+        "-t", str(duration),
+        "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1",
+        "-c:v", "libx264",
+        "-preset", "medium",
+        "-crf", "23",
+        "-pix_fmt", "yuv420p",
+        temp_output
+    ]
+    subprocess.run(ffmpeg_command, check=True)
+    files_to_cleanup.append(temp_output)
+    return temp_output
 
 def create_video_part(video_path, duration, files_to_cleanup):
     temp_output = os.path.join(TEMP_ASSETS_FOLDER, sanitize_filename(f"temp_{os.path.basename(video_path)}.mp4"))
@@ -743,17 +792,23 @@ def create_video_part(video_path, duration, files_to_cleanup):
     files_to_cleanup.append(temp_output)
     return temp_output
 
-def create_looped_video_sequence(video_paths, total_duration, files_to_cleanup):
-    temp_video_parts = []
+def create_looped_sequence(video_parts, remaining_duration, files_to_cleanup):
+    looped_parts = []
     current_duration = 0
-    i = 0
-    while current_duration < total_duration:
-        video_path = video_paths[i % len(video_paths)]
-        temp_output = create_video_part(video_path, min(get_media_duration(video_path), total_duration - current_duration), files_to_cleanup)
-        temp_video_parts.append(temp_output)
-        current_duration += get_media_duration(video_path)
-        i += 1
-    return temp_video_parts
+    while current_duration < remaining_duration:
+        for part in video_parts:
+            part_duration = get_media_duration(part)
+            if current_duration + part_duration > remaining_duration:
+                duration_to_use = remaining_duration - current_duration
+                temp_output = create_video_part(part, duration_to_use, files_to_cleanup)
+                looped_parts.append(temp_output)
+                current_duration = remaining_duration
+            else:
+                looped_parts.append(part)
+                current_duration += part_duration
+            if current_duration >= remaining_duration:
+                break
+    return looped_parts
 
 def create_cut_video_sequence(video_paths, total_duration, files_to_cleanup):
     temp_video_parts = []
@@ -899,6 +954,10 @@ def main():
             if not output_path:
                 output_path = default_output_path
 
+        logging.debug(f"Audio path: {audio_path}")
+        logging.debug(f"Image inputs: {image_inputs}")
+        logging.debug(f"Output path: {output_path}")
+
         if generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_music_volume):
             print(f"Video created successfully at {output_path}")
             print("The length of the video is the main audio length plus 2.5 seconds.")
@@ -917,7 +976,8 @@ def main():
                 print(f"  {file}")
 
     except ValueError as e:
-        print(f"Error: {str(e)}")
+        logging.exception("An error occurred during video generation")
+        print(f"An error occurred: {str(e)}")
         sys.exit(1)
 
 if __name__ == "__main__":
