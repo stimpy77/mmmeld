@@ -88,13 +88,25 @@ from io import BytesIO
 from tqdm import tqdm
 from yt_dlp import YoutubeDL
 from urllib.parse import urlparse
+import asyncio
+from deepgram import DeepgramClient, SpeakOptions
+import aiohttp
 
 TEMP_ASSETS_FOLDER = "temp_assets"
 MAX_FILENAME_LENGTH = 100
 ELEVENLABS_VOICE_ID = "WWr4C8ld745zI3BiA8n7"
+OPENAI_VOICE_ID = "onyx"
+DEEPGRAM_VOICE_ID = "aura-zeus-en"
 DEFAULT_BG_MUSIC_VOLUME = 0.2  # 20% volume
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+# Suppress logging from other libraries
+logging.getLogger("requests").setLevel(logging.WARNING)
+logging.getLogger("PIL").setLevel(logging.WARNING)
+logging.getLogger("openai").setLevel(logging.WARNING)
+
+# Set up logging for your script
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -130,11 +142,14 @@ Examples:
     parser.add_argument("--cleanup", action="store_true", help="Clean up temporary files after video generation.")
     parser.add_argument("--autofill", action="store_true", help="Use defaults for all unspecified options, no prompts.")
     parser.add_argument("--voice-id", help=f"ElevenLabs voice ID. Default: {ELEVENLABS_VOICE_ID}")
+    parser.add_argument("--tts-provider", choices=['elevenlabs', 'openai', 'deepgram'], default='elevenlabs', 
+                        help="Text-to-speech provider (default: elevenlabs)")
     
     # Add argument group for API keys
     api_group = parser.add_argument_group('API Keys')
     api_group.add_argument("--openai-key", help="OpenAI API key. Default: Use OPENAI_API_KEY environment variable.")
     api_group.add_argument("--elevenlabs-key", help="ElevenLabs API key. Default: Use ELEVENLABS_API_KEY environment variable.")
+    api_group.add_argument("--deepgram-key", help="DeepGram API key. Default: Use DEEPGRAM_API_KEY environment variable.")
     
     args = parser.parse_args()
     
@@ -159,13 +174,13 @@ def get_multiline_input(prompt):
     return "\n".join(lines)
 
 def sanitize_filename(filename):
-    # Replace any character that's not a word character, hyphen, underscore, or space with an underscore
-    sanitized = re.sub(r'[^\w\-_\\\/\. ]', '_', filename)
-    # Replace multiple underscores with a single underscore
-    sanitized = re.sub(r'_+', '_', sanitized)
-    # Remove leading and trailing underscores
-    sanitized = sanitized.strip('_')
-    return sanitized
+    # Remove or replace special characters
+    filename = re.sub(r'[<>:"/\\|?*]', '', filename)
+    # Replace spaces with underscores
+    filename = filename.replace(' ', '_')
+    # Remove any non-ASCII characters
+    filename = ''.join(char for char in filename if ord(char) < 128)
+    return filename
 
 def generate_image_prompt(description, is_retry=False):
     client = OpenAI(api_key=os.environ.get("OPENAI_PERSONAL_API_KEY") or os.environ.get("OPENAI_API_KEY"))
@@ -192,36 +207,35 @@ def ensure_temp_folder():
     if not os.path.exists(TEMP_ASSETS_FOLDER):
         os.makedirs(TEMP_ASSETS_FOLDER)
 
-def generate_image(prompt, audio_filename, max_retries=3):
-    
+def generate_image(prompt, title, description=None, max_retries=3):
     ensure_temp_folder()
 
     client = OpenAI(api_key=os.environ.get("OPENAI_PERSONAL_API_KEY") or os.environ.get("OPENAI_API_KEY"))
     
+    # Use title and description to create a more meaningful prompt
+    if description:
+        full_prompt = f"Create an image based on the following: Title: {title}, Description: {description}. {prompt}"
+    else:
+        full_prompt = f"Create an image based on the title: {title}. {prompt}"
+
     for attempt in range(max_retries):
-        print(f"Generating image (Attempt {attempt + 1}/{max_retries})", end="", flush=True)
+        logger.info(f"Generating image (Attempt {attempt + 1}/{max_retries})")
         start_time = time.time()
         
         try:
             response = client.images.generate(
-                prompt=prompt,
+                prompt=full_prompt,
                 model="dall-e-3",
                 n=1,
                 quality="hd",
                 size="1024x1024"
             )
             
-            while time.time() - start_time < 60:
-                print(".", end="", flush=True)
-                time.sleep(0.5)
-                if response is not None:
-                    break
-            
             if response is None:
-                print("\nImage generation timed out. Retrying...")
+                logger.warning("Image generation timed out. Retrying...")
                 continue
             
-            print("\nImage generated successfully!")
+            logger.info("Image generated successfully!")
             
             image_url = response.data[0].url
             
@@ -229,23 +243,24 @@ def generate_image(prompt, audio_filename, max_retries=3):
             img_response = requests.get(image_url)
             img = Image.open(BytesIO(img_response.content))
             
-            # Use the audio filename (without extension) for the image
-            audio_name = os.path.splitext(os.path.basename(audio_filename))[0]
-            img_path = os.path.join(TEMP_ASSETS_FOLDER, f"{audio_name}_image.png")
+            # Use the title and description to create a meaningful filename
+            base_name = f"{title}_{description}" if description else title
+            sanitized_name = sanitize_filename(base_name)
+            img_path = os.path.join(TEMP_ASSETS_FOLDER, f"{sanitized_name}.png")
             img.save(img_path)
-            print(f"Image saved: {img_path}")
+            logger.info(f"Image saved: {img_path}")
             
             return img_path
 
         except Exception as e:
             if "content_policy_violation" in str(e):
-                print(f"\nContent policy violation. Regenerating prompt...")
-                prompt = generate_image_prompt(prompt, is_retry=True)
+                logger.warning("Content policy violation. Regenerating prompt...")
+                full_prompt = generate_image_prompt(full_prompt, is_retry=True)
             else:
-                print(f"\nError generating image: {e}")
+                logger.error(f"Error generating image: {e}")
             
             if attempt == max_retries - 1:
-                print("Max retries reached. Image generation failed.")
+                logger.error("Max retries reached. Image generation failed.")
                 return None
     
     return None
@@ -298,17 +313,70 @@ def download_youtube_audio(url):
     print(f"Audio downloaded: {output_filename}")
     return output_filename, sanitized_title, description
 
-def generate_speech_with_elevenlabs(text, voice_id=None, autofill=False):
+MAX_CHUNK_SIZE = 4096
+
+def split_text_into_chunks(text, max_chunk_size=MAX_CHUNK_SIZE):
+    # Split text into chunks of max_chunk_size or less
+    chunks = []
+    current_chunk = []
+
+    for line in text.split('\n'):
+        if len(line) > max_chunk_size:
+            # If the line itself is too long, split it further
+            for sentence in re.split(r'(?<=[.?!])\s+', line):
+                if len(sentence) > max_chunk_size:
+                    # If the sentence itself is too long, split it further
+                    for word in sentence.split(' '):
+                        if len(' '.join(current_chunk + [word])) > max_chunk_size:
+                            chunks.append(' '.join(current_chunk))
+                            current_chunk = [word]
+                        else:
+                            current_chunk.append(word)
+                else:
+                    if len(' '.join(current_chunk + [sentence])) > max_chunk_size:
+                        chunks.append(' '.join(current_chunk))
+                        current_chunk = [sentence]
+                    else:
+                        current_chunk.append(sentence)
+        else:
+            if len(' '.join(current_chunk + [line])) > max_chunk_size:
+                chunks.append(' '.join(current_chunk))
+                current_chunk = [line]
+            else:
+                current_chunk.append(line)
+
+    if current_chunk:
+        chunks.append(' '.join(current_chunk))
+
+    return chunks
+
+def merge_audio_files(audio_files, output_path):
+    # Create a temporary file list for ffmpeg
+    file_list_path = os.path.join(TEMP_ASSETS_FOLDER, "file_list.txt")
+    with open(file_list_path, 'w') as file_list:
+        for audio_file in audio_files:
+            # Ensure the path is absolute and correctly formatted for ffmpeg
+            absolute_path = os.path.abspath(audio_file).replace('\\', '/').replace("'", "'\\''")
+            file_list.write(f"file '{absolute_path}'\n")
+            print(f"Added to file list: {absolute_path}")  # Debugging statement
+
+    # Use ffmpeg to merge the audio files
+    cmd = [
+        "ffmpeg", "-f", "concat", "-safe", "0", "-i", file_list_path,
+        "-c", "copy", output_path
+    ]
+    print(f"Running ffmpeg command: {' '.join(cmd)}")  # Debugging statement
+    subprocess.run(cmd, check=True)
+
+    # Clean up the temporary file list
+    os.remove(file_list_path)
+
+def generate_speech_with_elevenlabs(text, voice_id):
     ensure_temp_folder()
     print("Generating speech with ElevenLabs...")
     api_key = os.environ.get("ELEVENLABS_API_KEY") or os.environ.get("XI_API_KEY")
     if not api_key:
         raise ValueError("ElevenLabs API key is not set.")
-    
-    if not voice_id and not autofill:
-        voice_id = input(f"Enter ElevenLabs voice ID, or press ENTER for default [{ELEVENLABS_VOICE_ID}]: ") or ELEVENLABS_VOICE_ID
-    elif not voice_id:
-        voice_id = ELEVENLABS_VOICE_ID
     
     print(f"Using voice ID: {voice_id}")
 
@@ -330,7 +398,7 @@ def generate_speech_with_elevenlabs(text, voice_id=None, autofill=False):
     response = requests.post(tts_url, headers=headers, json=data, stream=True)
     if response.ok:
         title = generate_title_from_text(text)
-        audio_filename = os.path.join(TEMP_ASSETS_FOLDER, f"{title}.mp3")
+        audio_filename = os.path.join(TEMP_ASSETS_FOLDER, f"{title}.wav")
         with open(audio_filename, "wb") as f:
             for chunk in response.iter_content(chunk_size=1024):
                 f.write(chunk)
@@ -340,7 +408,7 @@ def generate_speech_with_elevenlabs(text, voice_id=None, autofill=False):
         print(response.text)
         raise Exception("Failed to generate speech with ElevenLabs.")
 
-def generate_speech_with_openai(text):
+def generate_speech_with_openai(text, voice_id):
     ensure_temp_folder()
     print("Generating speech with OpenAI...")
     title = generate_title_from_text(text)
@@ -348,37 +416,108 @@ def generate_speech_with_openai(text):
     
     response = client.audio.speech.create(
         model="tts-1-hd",
-        voice="onyx",
+        voice=voice_id,
         input=text
     )
     
     audio_filename = os.path.join(TEMP_ASSETS_FOLDER, f"{title}.wav")
     response.stream_to_file(audio_filename)
     print(f"Audio generated: {audio_filename}")
-    
     return audio_filename, title, text
 
-def generate_speech(text, voice_id=None, autofill=False):
-    print(f"Generating speech for text:\n{text}\n")
-    tts_provider = os.environ.get("TTS_PROVIDER", "elevenlabs").lower()
+async def generate_speech_with_deepgram(text, voice_id):
+    ensure_temp_folder()
+    print("Generating speech with DeepGram...")
+    api_key = os.environ.get("DEEPGRAM_PERSONAL_API_KEY") or os.environ.get("DEEPGRAM_API_KEY")
+    if not api_key:
+        raise ValueError("DeepGram API key is not set. Please set the DEEPGRAM_API_KEY environment variable.")
     
-    if tts_provider == "elevenlabs":
-        try:
-            return generate_speech_with_elevenlabs(text, voice_id, autofill)
-        except Exception as e:
-            print(f"ElevenLabs TTS failed: {e}")
-            print("Falling back to OpenAI TTS...")
-            return generate_speech_with_openai(text)
-    else:
-        return generate_speech_with_openai(text)
+    deepgram = DeepgramClient(api_key)
+    
+    title = generate_title_from_text(text)
+    audio_filename = os.path.join(TEMP_ASSETS_FOLDER, f"{title}.wav")
+    
+    try:
+        speak_options = {"text": text}
+        options = SpeakOptions(
+            model="aura-zeus-en",  # Use the default model or voice_id if specified
+            encoding="linear16",
+            container="wav"
+        )
+        
+        response = deepgram.speak.v("1").save(audio_filename, speak_options, options)
+        print(f"Audio generated: {audio_filename}")
+        print(response.to_json(indent=4))
+        
+        return audio_filename, title, text
+    except Exception as e:
+        print(f"Error generating speech with DeepGram: {e}")
+        raise
 
-def get_audio_source():
+def generate_speech(text, voice_id=None, autofill=False, tts_provider='elevenlabs', files_to_cleanup=None):
+    print(f"Generating speech for text:\n{text}\n")
+    
+    # Handle voice ID selection before chunking
+    if not voice_id and not autofill:
+        if tts_provider == 'elevenlabs':
+            voice_id = input(f"Enter ElevenLabs voice ID, or press ENTER for default [{ELEVENLABS_VOICE_ID}]: ") or ELEVENLABS_VOICE_ID
+        elif tts_provider == 'openai':
+            voice_id = input(f"Enter OpenAI voice ID, or press ENTER for default [{OPENAI_VOICE_ID}]: ") or OPENAI_VOICE_ID
+        elif tts_provider == 'deepgram':
+            voice_id = input(f"Enter DeepGram voice ID, or press ENTER for default [{DEEPGRAM_VOICE_ID}]: ") or DEEPGRAM_VOICE_ID
+    elif not voice_id:
+        if tts_provider == 'elevenlabs':
+            voice_id = ELEVENLABS_VOICE_ID
+        elif tts_provider == 'openai':
+            voice_id = OPENAI_VOICE_ID
+        elif tts_provider == 'deepgram':
+            voice_id = DEEPGRAM_VOICE_ID
+    
+    chunks = split_text_into_chunks(text)
+    audio_files = []
+    main_title = None
+
+    tts_provider = tts_provider.lower()
+    for i, chunk in enumerate(chunks):
+        logger.info(f"Generating speech for chunk {i + 1}/{len(chunks)} with {tts_provider}")
+        if tts_provider == 'elevenlabs':
+            audio_filename, title, _ = generate_speech_with_elevenlabs(chunk, voice_id)
+        elif tts_provider == 'openai':
+            audio_filename, title, _ = generate_speech_with_openai(chunk, voice_id)
+        elif tts_provider == 'deepgram':
+            audio_filename, title, _ = asyncio.run(generate_speech_with_deepgram(chunk, voice_id))
+        else:
+            raise ValueError(f"Unsupported TTS provider: {tts_provider}")
+        
+        if i == 0:
+            main_title = title
+        
+        # Sanitize the filename
+        sanitized_title = sanitize_filename(main_title)
+        new_filename = f"[{i+1:02d}_of_{len(chunks):02d}] {sanitized_title[:50]}.wav"
+        new_filepath = os.path.join(TEMP_ASSETS_FOLDER, new_filename)
+        os.rename(audio_filename, new_filepath)
+        audio_files.append(new_filepath)
+        
+        # Add the chunked audio file to files_to_cleanup
+        if files_to_cleanup is not None:
+            files_to_cleanup.append(new_filepath)
+
+    # Merge the audio files
+    sanitized_title = sanitize_filename(main_title)
+    final_audio_filename = os.path.join(TEMP_ASSETS_FOLDER, f"{sanitized_title[:50]}_final.wav")
+    merge_audio_files(audio_files, final_audio_filename)
+
+    print(f"Final audio generated: {final_audio_filename}")
+    return final_audio_filename, main_title, text
+
+def get_audio_source(tts_provider='elevenlabs'):
     while True:
         audio_source = input("Enter the path to the audio file, YouTube video URL, or press Enter to generate speech: ")
         
         if not audio_source:
             text_to_speak = get_multiline_input("Enter the text you want to convert to speech (press Enter twice to finish):")
-            return generate_speech(text_to_speak)
+            return "generate", None, text_to_speak
         elif os.path.isfile(audio_source):
             return audio_source, os.path.splitext(os.path.basename(audio_source))[0], None
         elif "youtube.com" in audio_source or "youtu.be" in audio_source:
@@ -399,7 +538,7 @@ def infer_image_description(title, description=None):
         prompt = f"Based on the title '{title}', describe an image that would be suitable for a video thumbnail or cover art for this audio content. The description should be detailed and visually rich."
 
     if is_short:
-        prompt += f" Since the title is short, make sure to include visual elements that represent audio or music in your description, even if not directly mentioned in the title."
+        prompt += f" Since the title is short, make sure to include visual elements that represent music or audio in your description, even if not directly mentioned in the title."
     
     system_content = "You are a creative assistant that generates detailed image descriptions based on titles and descriptions for audio content."
     if is_short:
@@ -425,10 +564,10 @@ def get_default_output_path(audio_path, title=None):
     output = f"{base_name}.mp4"
     return output
 
-def generate_title_from_text(text):
+def generate_title_from_text(text, max_length=50):
     client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     response = client.chat.completions.create(
-        model="gpt-4",
+        model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": "You are a helpful assistant that generates concise and descriptive titles for audio files based on their text content."},
             {"role": "user", "content": f"Generate a concise and descriptive title for an audio file based on this text: {text}"}
@@ -439,7 +578,8 @@ def generate_title_from_text(text):
     title = re.sub(r'[^\w\s-]', '', title)
     # Replace spaces with underscores
     title = re.sub(r'\s+', '_', title)
-    return title[:MAX_FILENAME_LENGTH]
+    # Truncate to max_length
+    return title[:max_length]
 
 def get_background_music(bg_music_source):
     if os.path.isfile(bg_music_source):
@@ -530,16 +670,17 @@ def download_youtube_video(url, files_to_cleanup):
             print(f"Error downloading YouTube video: {e}")
             return None
         
-def get_image_inputs(args, files_to_cleanup=[]):
+def get_image_inputs(args, title, description, files_to_cleanup=[]):
     if args.image:
         # Process the command-line argument
-        inputs = process_image_input(args.image, args.image_description, files_to_cleanup)
+        inputs = process_image_input(args.image, args.image_description or description, files_to_cleanup)
         if not inputs:
             raise ValueError("No valid image inputs found. Please provide valid image input(s).")
         return inputs
     
     if args.autofill:
-        generated_image = generate_image(args.image_description or "A visual representation of audio", "generated_audio")
+        image_description = args.image_description or description or title
+        generated_image = generate_image(f"Create a visual representation for audio content with the following context: {image_description}", title, description)
         if generated_image:
             files_to_cleanup.append(generated_image)
         return [generated_image]
@@ -557,7 +698,8 @@ def get_image_inputs(args, files_to_cleanup=[]):
         
         if not file_path and first_input:
             print("Generating initial image...")
-            generated_image = generate_image(args.image_description or "A visual representation of audio", "generated_audio")
+            image_description = args.image_description or description or title
+            generated_image = generate_image(f"Create a visual representation for audio content with the following context: {image_description}", title, description)
             if generated_image:
                 inputs.append(generated_image)
                 files_to_cleanup.append(generated_image)
@@ -565,7 +707,7 @@ def get_image_inputs(args, files_to_cleanup=[]):
         elif not file_path and not first_input:
             break
         else:
-            new_inputs = process_image_input(file_path, args.image_description, files_to_cleanup)
+            new_inputs = process_image_input(file_path, args.image_description or description, files_to_cleanup)
             if new_inputs:
                 inputs.extend(new_inputs)
                 first_input = False
@@ -875,11 +1017,17 @@ def main():
     args = parse_arguments()
     print("Arguments parsed...")
 
+    title = ""
+    description = ""
+    audio_path = ""
+
     # Set API keys if provided
     if args.openai_key:
         os.environ["OPENAI_API_KEY"] = args.openai_key
     if args.elevenlabs_key:
         os.environ["ELEVENLABS_API_KEY"] = args.elevenlabs_key
+    if args.deepgram_key:
+        os.environ["DEEPGRAM_API_KEY"] = args.deepgram_key
 
     files_to_cleanup = []
 
@@ -892,7 +1040,7 @@ def main():
                         raise ValueError("Text for speech generation is required in autofill mode when audio is set to 'generate'.")
                     else:
                         args.text = get_multiline_input("Enter the text you want to convert to speech (press Enter twice to finish):")
-                audio_path, title, description = generate_speech(args.text, args.voice_id, args.autofill)
+                audio_path, title, description = generate_speech(args.text, args.voice_id, args.autofill, args.tts_provider, files_to_cleanup)
                 files_to_cleanup.append(audio_path)
             elif os.path.isfile(args.audio):
                 audio_path, title, description = args.audio, os.path.splitext(os.path.basename(args.audio))[0], None
@@ -903,20 +1051,18 @@ def main():
             else:
                 raise ValueError("Invalid audio input. Please provide a valid file path, YouTube URL, or 'generate'.")
         elif args.text:
-            audio_path, title, description = generate_speech(args.text, args.voice_id, args.autofill)
+            audio_path, title, description = generate_speech(args.text, args.voice_id, args.autofill, args.tts_provider, files_to_cleanup)
             files_to_cleanup.append(audio_path)
         elif args.autofill:
             raise ValueError("Neither audio nor text for speech generation provided in autofill mode.")
         else:
             audio_path, title, description = get_audio_source()
+            if audio_path == "generate":
+                audio_path, title, description = generate_speech(description, args.voice_id, args.autofill, args.tts_provider, files_to_cleanup)
             files_to_cleanup.append(audio_path)
 
         # Handle image/video inputs
-        if args.autofill and not args.image:
-            args.image = "generate"
-        if args.image == "generate":
-            args.image_description = args.image_description or description or title or "A visual representation of audio"
-        image_inputs = get_image_inputs(args, files_to_cleanup)
+        image_inputs = get_image_inputs(args, title, description, files_to_cleanup)
 
         # Handle background music
         bg_music_path = None
