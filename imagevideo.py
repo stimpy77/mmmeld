@@ -5,7 +5,7 @@ originally by Jon Davis (jon@jondavis.net) on 2024-06-28.
 This script generates a video from a collection of images and an audio file.
 The audio file determines the total duration of the video, and the image(s)
 and/or videos are combined to create a visual representation of the audio.
-Audio can be generated using text-to-speech (ElevenLabs or OpenAI).
+Audio can be generated using text-to-speech (ElevenLabs, OpenAI, or DeepGram).
 Images can be generated using DALL-E prompts from OpenAI.
 The whole thing can be done interactively or via command-line arguments.
 
@@ -56,9 +56,19 @@ Video Generation Rules and Notes:
 
 14. Images fill remaining time if videos don't occupy full duration.
 
+New Features and Improvements:
+- Support for multiple text-to-speech providers: ElevenLabs, OpenAI, and DeepGram
+- Improved handling of special characters in filenames
+- Option to clean up temporary files (including chunked audio files) with --cleanup flag
+- Better integration of generated speech title and description for image generation
+- Enhanced error handling and logging
+
 Implementation Notes:
-- Stick with ffmpeg for now.
-- Consider moviepy for more complex features in the future.
+- Uses ffmpeg for video generation and audio processing
+- Leverages OpenAI's DALL-E for image generation
+- Supports YouTube video/audio downloads
+- We're sticking with ffmpeg for now.
+- We'll consider moviepy for more complex features in the future.
 - No overlays or complex transitions at this point.
 
 Future Considerations:
