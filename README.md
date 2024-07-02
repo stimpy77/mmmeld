@@ -1,118 +1,119 @@
-# Image Video Generator
-Creates a video consisting of an image/video and provided audio. The origianl purpose was to "video-ize" a music file.
+Image Video Generator
+=====================
 
-Can produce speech from text if no audio provided. Can produce an image if no image provided. 
+Creates a video consisting of images/videos and provided audio. The original purpose was to "video-ize" a music file.
 
-Audio or image or video can come from local file or from YouTube URL. Multiple images can be provided to create a slideshow. 
+Features
+--------
 
-If a video asset is referenced for the "image", only the video is used from that asset, not the audio. If multiple videos are provided, they are treated as a sequence and looped. 
+-   Generate speech from text if no audio is provided
 
-If images and videos are provided, .. LOL well good luck and have fun.
+-   Generate an image if no image is provided
 
-There is a 0.5 second before and 2 seconds after silence buffer, and the visual component will fade out during those final 2 seconds of silence.
+-   Use local files or YouTube URLs for audio, images, or videos
 
-## Installation:
+-   Create slideshows with multiple images
 
-Install ffmpeg and ensure it is in your operating system's PATH. See: https://ffmpeg.org/
+-   Handle multiple video inputs as a sequence (looped if necessary)
 
-Install Python and run the following command:
+-   Support for background music
 
-```bash
-pip install openai pillow requests tqdm pytube elevenlabs yt-dlp
-```
+-   Multiple text-to-speech providers: ElevenLabs, OpenAI, and DeepGram
 
-## To use:
-```bash
-python ./imagevideo.py
-```
+Behavior Notes
+--------------
 
-Answer the questions. 
+-   Video duration is determined by the main audio length plus margins (0.5s start, 2s end)
 
-``Enter the path to the audio file, YouTube video URL, or press Enter to generate speech:`` **``myaudio.wav``**
+-   When using video assets, only the video is used, not the audio
 
-``Enter path/URL to image/video file (press Enter to generate):`` **``myimage.png``**
+-   For mixed image and video inputs, sequencing prioritizes showing full videos
 
-``Enter the path for the output video file (press Enter for default: myvideo.mp4):`` **``My Fantastic Video.mp4``**
+-   Visual component fades out during the final 2 seconds of silence
 
-### Command-line arguments
+-   Improved handling of special characters in filenames
 
-You don't have to be prompted.
+Installation
+------------
 
-```
-❯ python .\imagevideo.py --help
-usage: imagevideo.py [-h] [--image IMAGE] [--audio AUDIO] [--output OUTPUT] [--text TEXT]
-                     [--image_description IMAGE_DESCRIPTION] [--bg-music BG_MUSIC] [--bg-music-volume BG_MUSIC_VOLUME]
-                     [--cleanup] [--autofill] [--voice-id VOICE_ID] [--openai-key OPENAI_KEY]
-                     [--elevenlabs-key ELEVENLABS_KEY]
+1. Install ffmpeg and ensure it's in your system PATH: https://ffmpeg.org/
 
-Generate a video from audio and image/video, with options for text-to-speech, image generation, and background music.
+2. Install Python and required packages:
 
-options:
-  -h, --help            show this help message and exit
-  --image IMAGE         Path to image/video file(s), URL(s), or 'generate'. Use comma-separated list for multiple
-                        inputs.
-  --audio AUDIO         Path to audio file, YouTube URL, or 'generate' for text-to-speech.
-  --output OUTPUT       Path for the output video file. Default is based on audio filename.
-  --text TEXT           Text for speech generation (used if audio is 'generate').
-  --image_description IMAGE_DESCRIPTION
-                        Description for image generation (used if image is 'generate').
-  --bg-music BG_MUSIC   Path to background music file or YouTube URL.
-  --bg-music-volume BG_MUSIC_VOLUME
-                        Volume of background music (0.0 to 1.0). Default: 0.2
-  --cleanup             Clean up temporary files after video generation.
-  --autofill            Use defaults for all unspecified options, no prompts.
-  --voice-id VOICE_ID   ElevenLabs voice ID. Default: WWr4C8ld745zI3BiA8n7
+pip install openai pillow requests tqdm pytube elevenlabs yt-dlp aiohttp deepgram-sdk
 
-API Keys:
-  --openai-key OPENAI_KEY
-                        OpenAI API key. Default: Use OPENAI_API_KEY environment variable.
-  --elevenlabs-key ELEVENLABS_KEY
-                        ElevenLabs API key. Default: Use ELEVENLABS_API_KEY environment variable.
+Usage
+-----
 
-Examples:
-  Generate video from local audio and multiple image/video files:
-    python imagevideo.py --audio path/to/audio.mp3 --image path/to/image1.png,path/to/video1.mp4,path/to/image2.jpg
+### Interactive Mode
 
-  Generate video with text-to-speech, generated image, additional images/videos, and background music:
-    python imagevideo.py --audio generate --text "Hello, world!" --image generate,path/to/video1.mp4,https://example.com/image.jpg --bg-music path/to/music.mp3
+Run the script without arguments:
 
-  Download YouTube audio, use multiple images/videos, and add background music from YouTube:
-    python imagevideo.py --audio https://www.youtube.com/watch?v=dQw4w9WgXcQ --image path/to/image1.png,https://example.com/video.mp4 --bg-music https://www.youtube.com/watch?v=background_music_id
+python ./imagevideo.py
 
-  Generate video with specific ElevenLabs voice ID:
-    python imagevideo.py --audio generate --text "Hello, world!" --voice-id your_voice_id_here
+Follow the prompts to provide audio, image/video, and output file information.
 
-  Run interactively (no arguments):
-    python imagevideo.py
-```
+### Command-line Arguments
 
-If you want anything to be automatatically generated, you will need the following environment variables set up on your operating system:
+For non-interactive use, you can provide arguments:
 
-- `OPENAI_API_KEY`: The API key to use OpenAI services such as GPT (text generation), DALL-E (image generation), and text-to-speech.
-- `ELEVENLABS_API_KEY` OR `XI_API_KEY`: The API key provided by ElevenLabs for text-to-speech. You can find it by clicking on your avatar on their web site. 
+python imagevideo.py --audio path/to/audio.mp3 --image path/to/image.png --output output.mp4
 
-### Provide audio and image
+For full list of options:
 
-When asked for audio, provide the full file path to the audio file (.wav, mp3, ...).
+python imagevideo.py --help
 
-When asked for an image, provide the full file path to the image you want to display.
+### Key Features
 
-### Provide audio from YouTube URL
+-   Generate speech: Use --audio generate --text "Your text here"
 
-When asked for audio, you can provide a YouTube URL to download the audio from.
+-   Generate image: Use --image generate --image_description "Your description"
 
-### Provide audio from text (convert to speech)
+-   YouTube inputs: Provide YouTube URLs for audio or background music
 
-When asked for audio, you can just hit ENTER and enter text to be converted to speech. It will generate speech audio and use that as your audio, using the contents of your text as hints for the filename.
+-   Multiple inputs: Use comma-separated list for multiple images/videos
 
-### Generating an image
+-   Background music: Use --bg-music and --bg-music-volume
 
-When asked for an image, you can just hit ENTER and enter text to use as hints for an image generator prompt. 
+-   Cleanup: Use --cleanup to remove temporary files after generation
 
-#### Defaulting a generated image
+-   TTS provider selection: Use --tts-provider to choose between 'elevenlabs', 'openai', or 'deepgram'
 
-If you hit ENTER again instead of providing image prompt hint text, the image prompt will be automatically generated using the audio hints.
+API Keys
+--------
 
-### Defaulting the output file path
+Set up the following environment variables:
 
-When asked for an output file path, you can just hit ENTER and it will generate the output file path based on the audio information and/or filename.
+-   OPENAI_API_KEY: For OpenAI services (GPT, DALL-E, TTS)
+
+-   ELEVENLABS_API_KEY or XI_API_KEY: For ElevenLabs TTS
+
+-   DEEPGRAM_API_KEY: For DeepGram TTS
+
+Alternatively, provide API keys via command-line arguments.
+
+Examples
+--------
+
+1. Generate video with text-to-speech and generated image:
+
+   python imagevideo.py --audio generate --text "Hello, world!" --image generate
+
+2. Use YouTube audio with local images:
+
+   python imagevideo.py --audio https://www.youtube.com/watch?v=dQw4w9WgXcQ --image path/to/image1.png,path/to/image2.jpg
+
+3. Generate video with specific TTS provider and voice:
+
+   python imagevideo.py --audio generate --text "Hello, world!" --tts-provider openai --voice-id alloy
+
+Notes
+-----
+
+-   The script handles various combinations of inputs and attempts to create a coherent video output
+
+-   For complex input combinations (multiple images and videos), results may vary
+
+-   Use the --cleanup flag to remove temporary files after video generation
+
+For more detailed information about the video generation rules and implementation notes, refer to the script's documentation comments.
