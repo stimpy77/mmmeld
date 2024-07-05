@@ -66,6 +66,7 @@ Examples:
     api_group.add_argument("--deepgram-key", help="DeepGram API key. Default: Use DEEPGRAM_API_KEY environment variable.")
     
     parser.add_argument("--output", help="Path for the output video file. Default is based on audio filename.")
+    parser.add_argument("--audiomargin", default="0.5,2.0", help="Start and end audio margins in seconds, comma-separated. Default: 0.5,2.0")
     
     if len(sys.argv) == 1:
         return parser.parse_args([])  # Return empty Namespace if no args provided

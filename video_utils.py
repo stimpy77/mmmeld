@@ -40,10 +40,10 @@ def is_video(file_path):
         return int(output) > 0
     return False
 
-def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music_volume):
+def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music_volume, start_margin, end_margin):
     main_audio_duration = get_media_duration(main_audio_path)
-    total_duration = main_audio_duration + 2.5  # Adding 0.5s lead-in and 2s tail
-    fade_duration = 2.0  # Define fade duration
+    total_duration = main_audio_duration + start_margin + end_margin
+    fade_duration = end_margin  # Define fade duration as end_margin
     logging.debug(f"Main audio duration: {main_audio_duration}")
     logging.debug(f"Total video duration: {total_duration}")
     logging.debug(f"Fade duration: {fade_duration}")
@@ -77,14 +77,14 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
     # Prepare the filter complex for mixing audio and applying video fade-out
     filter_complex = []
 
-    # Add the main audio to the final video with silence margins
-    filter_complex.append(f"[1:a]adelay=500|500,apad=pad_dur=2[main_audio]")
+    # Add the main audio to the final video with custom silence margins
+    filter_complex.append(f"[1:a]adelay={int(start_margin*1000)}|{int(start_margin*1000)},apad=pad_dur={end_margin}[main_audio]")
 
     # If background music is provided, add it to the mix with fade out
     if bg_music_path:
         bg_music_duration = get_media_duration(bg_music_path)
         loop_count = math.ceil(total_duration / bg_music_duration)
-        fade_start = main_audio_duration + 0.5  # Start fade when main audio ends (including lead-in)
+        fade_start = main_audio_duration + start_margin  # Start fade when main audio ends (including start margin)
         
         filter_complex.append(f"[2:a]aloop=loop={loop_count-1}:size={int(bg_music_duration*48000)}[looped_bg]")
         filter_complex.append(f"[looped_bg]volume={bg_music_volume},afade=t=out:st={fade_start}:d={fade_duration}[bg_music]")

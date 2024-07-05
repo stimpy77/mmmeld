@@ -13,6 +13,8 @@ def main():
     setup_logging()
     set_api_keys(args)
 
+    start_margin, end_margin = map(float, args.audiomargin.split(','))
+
     title = ""
     description = ""
     audio_path = ""
@@ -65,9 +67,9 @@ def main():
         output_path = args.output or (get_default_output_path(audio_path, title) if args.autofill else 
                                       input(f"Enter the path for the output video file (press Enter for default: {get_default_output_path(audio_path, title)}): "))
 
-        if generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_music_volume):
+        if generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_music_volume, start_margin, end_margin):
             print(f"Video created successfully at {output_path}")
-            print("The length of the video is the main audio length plus 2.5 seconds.")
+            print(f"The length of the video is the main audio length plus {start_margin + end_margin} seconds.")
         else:
             print("Video creation failed.")
             sys.exit(1)

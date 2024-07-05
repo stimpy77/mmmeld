@@ -9,7 +9,7 @@ Creates a video consisting of images/videos and provided audio. The primary purp
 - Supports audio/image/video from local files or YouTube URLs
 - Handles multiple images to create a slideshow effect
 - Processes video assets for visuals only, not audio
-- Adds a 0.5-second lead-in and 2-second fade-out
+- Adds a 0.5-second lead-in and 2-second fade-out (optional, customizable)
 
 ## Installation:
 
@@ -62,29 +62,67 @@ Follow the prompts to specify audio, image, and output options.
 
 ### Command-line Arguments:
 
-For non-interactive use, mmmeld supports various command-line arguments:
+For non-interactive use, mmmeld supports various command-line arguments. You can view all available options by running:
 
-```
-usage: mmmeld [-h] [--image IMAGE] [--audio AUDIO] [--output OUTPUT] [--text TEXT]
-              [--image_description IMAGE_DESCRIPTION] [--bg-music BG_MUSIC] 
-              [--bg-music-volume BG_MUSIC_VOLUME] [--cleanup] [--autofill] 
-              [--voice-id VOICE_ID] [--tts-provider {elevenlabs,openai,deepgram}]
-              [--openai-key OPENAI_KEY] [--elevenlabs-key ELEVENLABS_KEY] 
-              [--deepgram-key DEEPGRAM_KEY]
-```
-
-For detailed information on each argument, use:
 ```bash
 mmmeld --help
 ```
 
-### API Keys:
+This will display the following help information:
 
-To use automatic generation features, set up the following environment variables:
+```
+usage: mmmeld [-h]
+              [--image IMAGE]
+              [--audio AUDIO]
+              [--output OUTPUT]
+              [--text TEXT]
+              [--image_description IMAGE_DESCRIPTION]
+              [--bg-music BG_MUSIC]
+              [--bg-music-volume BG_MUSIC_VOLUME]
+              [--cleanup]
+              [--autofill]
+              [--voice-id VOICE_ID]
+              [--tts-provider {elevenlabs,openai,deepgram}]
+              [--openai-key OPENAI_KEY]
+              [--elevenlabs-key ELEVENLABS_KEY]
+              [--deepgram-key DEEPGRAM_KEY]
+              [--audiomargin AUDIOMARGIN]
 
-- `OPENAI_API_KEY`: For OpenAI services (GPT, DALL-E, text-to-speech)
-- `ELEVENLABS_API_KEY` or `XI_API_KEY`: For ElevenLabs text-to-speech
-- `DEEPGRAM_API_KEY`: For DeepGram text-to-speech
+options:
+  -h, --help            show this help message and exit
+  --image IMAGE         Path to image/video file(s), URL(s), or 'generate'. Use comma-separated list for multiple inputs.
+  --audio AUDIO         Path to audio file, YouTube URL, or 'generate' for text-to-speech.
+  --output OUTPUT       Path for the output video file. Default is based on audio filename.
+  --text TEXT           Text for speech generation (used if audio is 'generate').
+  --image_description IMAGE_DESCRIPTION
+                        Description for image generation (used if image is 'generate').
+  --bg-music BG_MUSIC   Path to background music file or YouTube URL.
+  --bg-music-volume BG_MUSIC_VOLUME
+                        Volume of background music (0.0 to 1.0). Default: 0.2
+  --cleanup             Clean up temporary files after video generation.
+  --autofill            Use defaults for all unspecified options, no prompts.
+  --voice-id VOICE_ID   ElevenLabs voice ID. Default: WWr4C8ld745zI3BiA8n7
+  --tts-provider {elevenlabs,openai,deepgram}
+                        Text-to-speech provider (default: elevenlabs)
+  --openai-key OPENAI_KEY
+                        OpenAI API key. Default: Use OPENAI_API_KEY environment variable.
+  --elevenlabs-key ELEVENLABS_KEY
+                        ElevenLabs API key. Default: Use ELEVENLABS_API_KEY environment variable.
+  --deepgram-key DEEPGRAM_KEY
+                        DeepGram API key. Default: Use DEEPGRAM_API_KEY environment variable.
+  --audiomargin AUDIOMARGIN
+                        Start and end audio margins in seconds, comma-separated. Default: 0.5,2.0
+```
+
+### New Feature: Custom Audio Margins
+
+You can now specify custom start and end margins for the audio using the `--audiomargin` parameter:
+
+```bash
+mmmeld --audio path/to/audio.mp3 --image path/to/image.png --audiomargin 1.0,3.0
+```
+
+This will add a 1-second lead-in and a 3-second fade-out to the main audio. The default value is "0.5,2.0" (0.5-second lead-in and 2-second fade-out).
 
 ## Examples:
 
@@ -101,6 +139,11 @@ mmmeld --audio generate --text "Hello, world!" --image generate,path/to/video1.m
 3. Use YouTube audio, multiple images/videos, and YouTube background music:
 ```bash
 mmmeld --audio https://www.youtube.com/watch?v=dQw4w9WgXcQ --image path/to/image1.png,https://example.com/video.mp4 --bg-music https://www.youtube.com/watch?v=background_music_id
+```
+
+4. Generate video from local audio and multiple image/video files with custom audio margins (1 second lead-in, 3 seconds out):
+```bash
+mmmeld --audio path/to/audio.mp3 --image path/to/image1.png,path/to/video1.mp4,path/to/image2.jpg --audiomargin 1.0,3.0
 ```
 
 ## Recent Improvements:
@@ -132,7 +175,7 @@ Remember: The goal is to provide a simple way for users to create audio-backed v
 ### Audio Processing
 - Supports local audio files, YouTube URLs, and text-to-speech generation
 - Handles various audio formats (WAV, MP3, etc.) using ffmpeg
-- Adds a 0.5-second lead-in and 2-second fade-out to the main audio
+- Adds a 0.5-second lead-in and 2-second fade-out to the main audio (optional, customizable)
 - Optionally includes background music with volume adjustment and fade-out
 
 ### Image and Video Processing
