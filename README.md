@@ -1,4 +1,4 @@
-# Image Video Generator
+# `mmmeld` - Multimedia Meld - Audio/Image Video Generator
 Creates a video consisting of an image/video and provided audio. The original purpose was to "video-ize" a music file.
 
 Can produce speech from text if no audio provided. Can produce an image if no image provided. 
