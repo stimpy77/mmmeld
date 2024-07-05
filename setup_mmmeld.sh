@@ -6,7 +6,11 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 # Create the mmmeld script
 cat << EOF > "$SCRIPT_DIR/mmmeld"
 #!/bin/bash
-python "$SCRIPT_DIR/mmmeld.py" "\$@"
+if [ \$# -eq 0 ]; then
+    python "$SCRIPT_DIR/mmmeld.py"
+else
+    python "$SCRIPT_DIR/mmmeld.py" "\$@"
+fi
 EOF
 
 # Make the mmmeld script executable
