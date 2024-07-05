@@ -1023,9 +1023,7 @@ def create_mixed_media_sequence(video_paths, image_paths, audio_path, total_dura
     return temp_video_parts
 
 def main():
-    print("Entering main function...")
     args = parse_arguments()
-    print("Arguments parsed...")
 
     title = ""
     description = ""
