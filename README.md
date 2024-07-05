@@ -23,7 +23,7 @@ pip install openai pillow requests tqdm pytube elevenlabs yt-dlp deepgram-sdk ai
 
 ## To use:
 ```_bash
-python ./imagevideo.py
+python ./mmmeld.py
 ```
 
 Answer the questions. 
@@ -39,8 +39,8 @@ Answer the questions.
 You don't have to be prompted.
 
 ```
-❯ python .\imagevideo.py --help
-usage: imagevideo.py [-h] [--image IMAGE] [--audio AUDIO] [--output OUTPUT] [--text TEXT]
+❯ python .\mmmeld.py --help
+usage: mmmeld.py [-h] [--image IMAGE] [--audio AUDIO] [--output OUTPUT] [--text TEXT]
                      [--image_description IMAGE_DESCRIPTION] [--bg-music BG_MUSIC] [--bg-music-volume BG_MUSIC_VOLUME]
                      [--cleanup] [--autofill] [--voice-id VOICE_ID] [--tts-provider {elevenlabs,openai,deepgram}]
                      [--openai-key OPENAI_KEY] [--elevenlabs-key ELEVENLABS_KEY] [--deepgram-key DEEPGRAM_KEY]
@@ -75,19 +75,19 @@ API Keys:
 
 Examples:
   Generate video from local audio and multiple image/video files:
-    python imagevideo.py --audio path/to/audio.mp3 --image path/to/image1.png,path/to/video1.mp4,path/to/image2.jpg
+    python mmmeld.py --audio path/to/audio.mp3 --image path/to/image1.png,path/to/video1.mp4,path/to/image2.jpg
 
   Generate video with text-to-speech, generated image, additional images/videos, and background music:
-    python imagevideo.py --audio generate --text "Hello, world!" --image generate,path/to/video1.mp4,https://example.com/image.jpg --bg-music path/to/music.mp3
+    python mmmeld.py --audio generate --text "Hello, world!" --image generate,path/to/video1.mp4,https://example.com/image.jpg --bg-music path/to/music.mp3
 
   Download YouTube audio, use multiple images/videos, and add background music from YouTube:
-    python imagevideo.py --audio https://www.youtube.com/watch?v=dQw4w9WgXcQ --image path/to/image1.png,https://example.com/video.mp4 --bg-music https://www.youtube.com/watch?v=background_music_id
+    python mmmeld.py --audio https://www.youtube.com/watch?v=dQw4w9WgXcQ --image path/to/image1.png,https://example.com/video.mp4 --bg-music https://www.youtube.com/watch?v=background_music_id
 
   Generate video with specific ElevenLabs voice ID:
-    python imagevideo.py --audio generate --text "Hello, world!" --voice-id your_voice_id_here
+    python mmmeld.py --audio generate --text "Hello, world!" --voice-id your_voice_id_here
 
   Run interactively (no arguments):
-    python imagevideo.py
+    python mmmeld.py
 ```
 
 If you want anything to be automatically generated, you will need the following environment variables set up on your operating system:
