@@ -189,7 +189,9 @@ Remember: The goal is to provide a simple way for users to create audio-backed v
 - Cuts longer videos to fit within the audio timeframe when main audio is present
 
 ### Video Generation Rules
-1. Total video duration = main audio duration + 0.5s lead-in + 2s tail (if main audio is provided)
+1. Total video duration = main audio duration + lead-in + tail (if main audio is provided)
+   - Lead-in default (configurable from command line): 0.5s
+   - Tail default (configurable from command line): 2s
 2. Single image: 
    - With main audio: Displayed for the entire duration
    - Without main audio: Displayed for 5 seconds
@@ -222,11 +224,16 @@ Remember: The goal is to provide a simple way for users to create audio-backed v
    - With main audio: Equal time for each, no looping
    - Without main audio: 5 seconds for each image
 9. Margin and fade-out:
-   - Main audio margin (0.5s lead-in, 2s tail by default) only applied when main audio is present
+   - Main audio margin (lead-in and tail, configurable from command line) is only applied when main audio is present
    - The tail margin duration is configurable and determines the fade-out duration
    - Fade-out is applied to background music and visuals during the tail margin
-   - No fade-out applied to main audio
-   - Note: The default 2-second tail margin mentioned above also serves as the default fade-out duration for background music and visuals. This duration can be customized using the --audiomargin parameter, where the second value represents both the tail margin and fade-out duration.
+   - No fade-out effect is applied to main audio
+   - There is no fade-out functionality applied anywhere when there is no main audio because 
+     fade-out is associated with the main audio margin.
+   - Note: The default 2-second tail margin mentioned above also serves as the default fade-out
+     duration for background music and visuals. This duration can be customized using the 
+     --audiomargin parameter, where the second value represents both the tail margin and fade-out 
+     duration.
 10. Background music:
     - With main audio: Loops and fades out at the end of the main audio (including margin)
     - Without main audio: Loops and fades out at the end of the visual sequence
