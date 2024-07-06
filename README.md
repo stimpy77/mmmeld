@@ -200,26 +200,26 @@ Remember: The goal is to provide a simple way for users to create audio-backed v
    - Without main audio: Played once with its own audio
 4. Multiple videos, no images:
    - With main audio:
-     - If total video time <= audio time: Play in sequence, then loop
-     - If total video time > audio time: Play in sequence, cut at audio end
-   - Without main audio: Play in sequence once
+     - If total video time <= audio time: Play each video in sequence, then loop and cut any ongoing iteration off at audio end after margin
+     - If total video time > audio time: Play each video in sequence, cut the sequence at audio end
+   - Without main audio: Play videos in sequence once
 5. Videos + images, with main audio:
    - If total video time < audio time:
      - Play videos once in sequence
-     - Distribute remaining time equally among images
+     - Distribute remaining time equally among images, even if less than 5 seconds
    - If total video time >= audio time:
      - Distribute 5 seconds each to image
      - Truncate sequence to fit audio
 6. Videos + images, without main audio:
    - Play videos in sequence
    - Show each image for 5 seconds
-7. Image + video:
+7. Image(s) + video:
    - With main audio:
      - End of video is "anchored" to the end of the audio
-     - Image shown first, filling the remaining time
-     - If video longer than audio: Minimum 5s for image, then video (cut off)
+     - Image(s) shown first, filling the remaining time
+     - If video longer than audio: Minimum 5s for image(s), then video (cut off)
    - Without main audio:
-     - Image shown for 5 seconds, then video plays in full
+     - Each image shown for 5 seconds, then video plays in full
 8. Multiple images, no videos:
    - With main audio: Equal time for each, no looping
    - Without main audio: 5 seconds for each image
@@ -233,7 +233,7 @@ Remember: The goal is to provide a simple way for users to create audio-backed v
    - Note: The default 2-second tail margin mentioned above also serves as the default fade-out
      duration for background music and visuals. This duration can be customized using the 
      --audiomargin parameter, where the second value represents both the tail margin and fade-out 
-     duration.
+     duration. But the --audiomargin parameter should still be ignored if there is no audio.
 10. Background music:
     - With main audio: Loops and fades out at the end of the main audio (including margin)
     - Without main audio: Loops and fades out at the end of the visual sequence
