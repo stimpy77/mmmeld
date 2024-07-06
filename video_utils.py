@@ -39,43 +39,23 @@ def is_video(file_path):
         return True
     return False
 
-def create_visual_sequence(inputs, total_duration, files_to_cleanup):
-    temp_video_parts = []
+def create_visual_sequence(inputs, total_duration):
+    video_parts = []
     current_duration = 0
-    loop_count = 0
 
-    while current_duration < total_duration:
-        for input_file in inputs:
-            input_duration = get_media_duration(input_file)
-            
-            if is_video(input_file):
-                temp_output = os.path.join(TEMP_ASSETS_FOLDER, f"temp_{os.path.basename(input_file)}.ts")
-                remaining_duration = min(input_duration, total_duration - current_duration)
-                subprocess.run([
-                    "ffmpeg", "-y", "-i", input_file,
-                    "-t", str(remaining_duration),
-                    "-c:v", "libx264", "-preset", "ultrafast",
-                    "-an",
-                    "-f", "mpegts", temp_output
-                ], check=True)
-                temp_video_parts.append(temp_output)
-                files_to_cleanup.append(temp_output)
-            else:  # Image
-                temp_output = os.path.join(TEMP_ASSETS_FOLDER, f"temp_{os.path.basename(input_file)}.mp4")
-                create_video_from_image(input_file, total_duration, temp_output)
-                temp_video_parts.append(temp_output)
-                files_to_cleanup.append(temp_output)
-            
-            current_duration += input_duration
-            if current_duration >= total_duration:
-                break
+    for input_file in inputs:
+        input_duration = get_media_duration(input_file)
+        
+        if is_video(input_file):
+            video_parts.append(input_file)
+        else:  # Image
+            temp_output = os.path.join(TEMP_ASSETS_FOLDER, f"temp_{os.path.basename(input_file)}.mp4")
+            create_video_from_image(input_file, 5.0, temp_output)
+            video_parts.append(temp_output)
+        
+        current_duration += input_duration
 
-        loop_count += 1
-        if loop_count > 1000:  # Safeguard against infinite loops
-            print("Warning: Maximum loop count reached. Stopping video sequence creation.")
-            break
-
-    return temp_video_parts, current_duration
+    return video_parts, current_duration
 
 def create_video_from_image(image_path, duration, output_path, fps=30):
     ffmpeg_command = [
@@ -94,34 +74,26 @@ def create_video_from_image(image_path, duration, output_path, fps=30):
 def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music_volume, start_margin, end_margin):
     main_audio_duration = get_media_duration(main_audio_path) if main_audio_path else 0
     
-    # Calculate total duration based on whether main audio is present
     if main_audio_path:
         total_duration = main_audio_duration + start_margin + end_margin
     else:
-        # Calculate duration based on input media
         total_duration = sum(get_media_duration(input_file) for input_file in inputs)
-        # If only images are provided, set a minimum duration
         if all(not is_video(input_file) for input_file in inputs):
-            total_duration = max(total_duration, 5 * len(inputs))  # 5 seconds per image
+            total_duration = max(total_duration, 5 * len(inputs))
 
-    fade_duration = end_margin if main_audio_path else min(2.0, total_duration / 10)  # Default 2s fade or 10% of total duration
+    fade_duration = end_margin if main_audio_path else min(2.0, total_duration / 10)
 
     ensure_temp_folder()
     files_to_cleanup = []
 
-    # Create the visual sequence
-    video_parts, visual_duration = create_visual_sequence(inputs, total_duration, files_to_cleanup)
+    video_parts, visual_duration = create_visual_sequence(inputs, total_duration)
 
-    # Adjust total_duration if no main audio and visual_duration is longer
     if not main_audio_path and visual_duration > total_duration:
         total_duration = visual_duration
 
-    # If output_path is not provided, generate a default one
     if not output_path:
-        # Remove the second argument (title) to avoid duplication
         output_path = get_default_output_path(main_audio_path, None, inputs)
 
-    # Prepare the filter complex for mixing audio and applying video fade-out
     filter_complex = []
 
     # Video processing with fade
@@ -147,25 +119,21 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
     elif bg_music_path:
         filter_complex.append("[bg_audio]acopy[final_audio]")
 
-    # Construct the ffmpeg command
     ffmpeg_command = ["ffmpeg", "-y"]
 
-    # Add input files
-    ffmpeg_command.extend(["-i", f"concat:{'|'.join(video_parts)}"])
+    # Add input files with looping
+    for video_part in video_parts:
+        ffmpeg_command.extend(["-stream_loop", "-1", "-i", video_part])
     if main_audio_path:
         ffmpeg_command.extend(["-i", main_audio_path])
     if bg_music_path:
         ffmpeg_command.extend(["-i", bg_music_path])
 
-    # Add filter complex
     ffmpeg_command.extend(["-filter_complex", ";".join(filter_complex)])
-
-    # Add output mapping
     ffmpeg_command.extend(["-map", "[final_video]"])
     if main_audio_path or bg_music_path:
         ffmpeg_command.extend(["-map", "[final_audio]"])
 
-    # Add output options
     ffmpeg_command.extend([
         "-c:v", "libx264", "-preset", "medium", "-crf", "23",
         "-c:a", "aac", "-b:a", "192k",
@@ -173,11 +141,9 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
         output_path
     ])
 
-    # Print the ffmpeg command for debugging
     print("FFmpeg command:")
     print(" ".join(ffmpeg_command))
 
-    # Run the ffmpeg command
     try:
         subprocess.run(ffmpeg_command, check=True)
     except subprocess.CalledProcessError as e:
@@ -187,35 +153,3 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
         cleanup_files(files_to_cleanup)
 
     return True
-
-
-def create_image_part(image_path, duration, files_to_cleanup):
-    temp_output = os.path.join(TEMP_ASSETS_FOLDER, sanitize_filename(f"temp_{os.path.basename(image_path)}.ts"))
-    ffmpeg_command = [
-        "ffmpeg", "-y",
-        "-loop", "1",
-        "-i", image_path,
-        "-t", str(duration),
-        "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1",
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "0",
-        "-f", "mpegts",
-        temp_output
-    ]
-    subprocess.run(ffmpeg_command, check=True)
-    files_to_cleanup.append(temp_output)
-    return temp_output
-
-def create_video_part(video_path, duration, files_to_cleanup):
-    temp_output = os.path.join(TEMP_ASSETS_FOLDER, sanitize_filename(f"temp_{os.path.basename(video_path)}.ts"))
-    ffmpeg_command = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-t", str(duration),
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "0",
-        "-an",
-        "-f", "mpegts",
-        temp_output
-    ]
-    subprocess.run(ffmpeg_command, check=True)
-    files_to_cleanup.append(temp_output)
-    return temp_output
