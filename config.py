@@ -71,3 +71,4 @@ Examples:
     if len(sys.argv) == 1:
         return parser.parse_args([])  # Return empty Namespace if no args provided
     return parser.parse_args()
+

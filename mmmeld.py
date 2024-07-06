@@ -8,6 +8,25 @@ from video_utils import generate_video
 from image_utils import get_image_inputs
 from file_utils import cleanup_files, get_default_output_path
 
+# Add this line
+DEFAULT_BG_MUSIC_VOLUME = 0.2  # You can adjust this value as needed
+
+def validate_input(input_type, value):
+    if input_type == "audio":
+        if value.lower() == "generate" or os.path.isfile(value) or "youtube.com" in value or "youtu.be" in value:
+            return True
+    elif input_type == "image":
+        if value.lower() == "generate" or os.path.isfile(value) or value.startswith("http"):
+            return True
+    return False
+
+def get_valid_input(prompt, validator, error_message):
+    while True:
+        user_input = input(prompt)
+        if validator(user_input):
+            return user_input
+        print(error_message)
+
 def main():
     args = parse_arguments()
     setup_logging()
@@ -24,16 +43,22 @@ def main():
         # Handle audio source
         if args.audio or args.text:
             audio_path, title, description = get_audio_source(args, files_to_cleanup)
-        else:
-            while not audio_path:
-                audio_input = input("Enter the path to the audio file, YouTube URL, or 'generate' for text-to-speech (or press Enter to skip): ")
-                if not audio_input:
-                    break
+        elif not args.autofill:
+            audio_input = get_valid_input(
+                "Enter the path to the audio file, YouTube URL, 'generate' for text-to-speech, or press Enter to skip: ",
+                lambda x: not x or validate_input("audio", x),
+                "Invalid input. Please try again."
+            )
+            if audio_input:
                 if audio_input.lower() == 'generate':
                     text = get_multiline_input("Enter the text you want to convert to speech (press Enter twice to finish):")
-                    audio_path, title, description = generate_speech(text, args.voice_id, False, args.tts_provider, files_to_cleanup)
+                    if text:
+                        audio_path, title, description = generate_speech(text, args.voice_id, False, args.tts_provider, files_to_cleanup)
+                    else:
+                        print("No text provided. Skipping audio generation.")
                 elif os.path.isfile(audio_input):
-                    audio_path, title, description = audio_input, os.path.splitext(os.path.basename(audio_input))[0], None
+                    audio_path = audio_input
+                    title = os.path.splitext(os.path.basename(audio_input))[0]
                 elif "youtube.com" in audio_input or "youtu.be" in audio_input:
                     print("Downloading audio from YouTube...")
                     audio_path, title, description = download_youtube_audio(audio_input)
@@ -61,15 +86,23 @@ def main():
             bg_music_path, bg_music_volume = get_background_music(args, files_to_cleanup)
         else:
             bg_music_path = None
-            bg_music_volume = DEFAULT_BG_MUSIC_VOLUME
+            bg_music_volume = args.bg_music_volume if args.bg_music_volume is not None else DEFAULT_BG_MUSIC_VOLUME
 
         # Handle output path
-        output_path = args.output or (get_default_output_path(audio_path, title) if args.autofill else 
-                                      input(f"Enter the path for the output video file (press Enter for default: {get_default_output_path(audio_path, title)}): "))
+        output_path = args.output or (get_default_output_path(audio_path, title, image_inputs) if args.autofill else 
+                                      input(f"Enter the path for the output video file (press Enter for default: {get_default_output_path(audio_path, title, image_inputs)}): "))
+
+        # Check if either audio or images/videos are provided
+        if not audio_path and not image_inputs:
+            print("Error: You must provide either audio or images/videos.")
+            sys.exit(1)
 
         if generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_music_volume, start_margin, end_margin):
             print(f"Video created successfully at {output_path}")
-            print(f"The length of the video is the main audio length plus {start_margin + end_margin} seconds.")
+            if audio_path:
+                print(f"The length of the video is the main audio length plus {start_margin + end_margin} seconds.")
+            else:
+                print("The length of the video is determined by the input images and videos.")
         else:
             print("Video creation failed.")
             sys.exit(1)

@@ -9,7 +9,8 @@ Creates a video consisting of images/videos and provided audio. The primary purp
 - Supports audio/image/video from local files or YouTube URLs
 - Handles multiple images to create a slideshow effect
 - Processes video assets for visuals only, not audio
-- Adds a 0.5-second lead-in and 2-second fade-out (optional, customizable)
+- Adds a 0.5-second lead-in and 2-second fade-out to background music and visuals (optional, customizable)
+- Can generate videos without main audio, using only images/videos and optional background music
 
 ## Installation:
 
@@ -72,13 +73,13 @@ This will display the following help information:
 
 ```
 usage: mmmeld [-h]
-              [--image IMAGE]
               [--audio AUDIO]
-              [--output OUTPUT]
               [--text TEXT]
+              [--image IMAGE]
               [--image_description IMAGE_DESCRIPTION]
               [--bg-music BG_MUSIC]
               [--bg-music-volume BG_MUSIC_VOLUME]
+              [--output OUTPUT]
               [--cleanup]
               [--autofill]
               [--voice-id VOICE_ID]
@@ -90,15 +91,15 @@ usage: mmmeld [-h]
 
 options:
   -h, --help            show this help message and exit
-  --image IMAGE         Path to image/video file(s), URL(s), or 'generate'. Use comma-separated list for multiple inputs.
   --audio AUDIO         Path to audio file, YouTube URL, or 'generate' for text-to-speech.
-  --output OUTPUT       Path for the output video file. Default is based on audio filename.
   --text TEXT           Text for speech generation (used if audio is 'generate').
+  --image IMAGE         Path to image/video file(s), URL(s), or 'generate'. Use comma-separated list for multiple inputs.
   --image_description IMAGE_DESCRIPTION
                         Description for image generation (used if image is 'generate').
   --bg-music BG_MUSIC   Path to background music file or YouTube URL.
   --bg-music-volume BG_MUSIC_VOLUME
                         Volume of background music (0.0 to 1.0). Default: 0.2
+  --output OUTPUT       Path for the output video file. Default is based on audio filename.
   --cleanup             Clean up temporary files after video generation.
   --autofill            Use defaults for all unspecified options, no prompts.
   --voice-id VOICE_ID   ElevenLabs voice ID. Default: WWr4C8ld745zI3BiA8n7
@@ -113,6 +114,16 @@ options:
   --audiomargin AUDIOMARGIN
                         Start and end audio margins in seconds, comma-separated. Default: 0.5,2.0
 ```
+
+### New Feature: Optional Audio Input
+
+You can now create videos without specifying an audio input. In this case, the video duration will be determined by the input images and videos:
+
+```bash
+mmmeld --image path/to/image1.png,path/to/video1.mp4,path/to/image2.jpg
+```
+
+This will create a video using the specified images and video, with each image displayed for 5 seconds and the video played at its original duration.
 
 ### New Feature: Custom Audio Margins
 
@@ -160,14 +171,6 @@ mmmeld --audio path/to/audio.mp3 --image path/to/image1.png,path/to/video1.mp4,p
 - Leverages OpenAI's DALL-E for image generation
 - Supports YouTube video/audio downloads
 
-## Future Considerations:
-
-- Custom durations for individual images/videos
-- Transition effects between visuals
-- 'Ken Burns' effect for static images
-- Option to use video length instead of audio for total duration
-- Command-line flag for specifying exact total timeline duration
-
 Remember: The goal is to provide a simple way for users to create audio-backed visual content, prioritizing audio for platforms that require visual components.
 
 ## Detailed Functionality
@@ -175,37 +178,64 @@ Remember: The goal is to provide a simple way for users to create audio-backed v
 ### Audio Processing
 - Supports local audio files, YouTube URLs, and text-to-speech generation
 - Handles various audio formats (WAV, MP3, etc.) using ffmpeg
-- Adds a 0.5-second lead-in and 2-second fade-out to the main audio (optional, customizable)
+- Adds a 0.5-second lead-in and 2-second tail to the main audio (customizable)
 - Optionally includes background music with volume adjustment and fade-out
 
 ### Image and Video Processing
 - Accepts local image/video files, URLs, and can generate images using DALL-E
 - Supports multiple input formats (PNG, JPG, MP4, etc.)
 - Creates a slideshow effect when multiple images are provided
-- Loops shorter videos to match audio duration
-- Cuts longer videos to fit within the audio timeframe
+- Loops shorter videos to match audio duration when main audio is present
+- Cuts longer videos to fit within the audio timeframe when main audio is present
 
 ### Video Generation Rules
-1. Total video duration = main audio duration + 0.5s lead-in + 2s tail
-2. Single image: Displayed for the entire duration
-3. Single video: Looped if shorter than audio, cut if longer
+1. Total video duration = main audio duration + 0.5s lead-in + 2s tail (if main audio is provided)
+2. Single image: 
+   - With main audio: Displayed for the entire duration
+   - Without main audio: Displayed for 5 seconds
+3. Single video: 
+   - With main audio: Looped if shorter than audio, cut if longer
+   - Without main audio: Played once with its own audio
 4. Multiple videos, no images:
-   - If total video time <= audio time: Play in sequence, then loop
-   - If total video time > audio time: Play in sequence, cut at audio end
-5. Videos + images, total video time < audio time:
-   - Play videos once in sequence
-   - Distribute remaining time equally among images
-6. Videos + images, total video time >= audio time:
-   - Adjust durations to fit audio time
-   - Video inputs start at the tail end of the total timespan
-7. Only images: Equal time for each, no looping
-8. Image + video:
-   - If video shorter than audio: Image shown first, then video
-   - If video longer than audio: Minimum 5s for image, then video (cut off)
+   - With main audio:
+     - If total video time <= audio time: Play in sequence, then loop
+     - If total video time > audio time: Play in sequence, cut at audio end
+   - Without main audio: Play in sequence once
+5. Videos + images, with main audio:
+   - If total video time < audio time:
+     - Play videos once in sequence
+     - Distribute remaining time equally among images
+   - If total video time >= audio time:
+     - Distribute 5 seconds each to image
+     - Truncate sequence to fit audio
+6. Videos + images, without main audio:
+   - Play videos in sequence
+   - Show each image for 5 seconds
+7. Image + video:
+   - With main audio:
+     - End of video is "anchored" to the end of the audio
+     - Image shown first, filling the remaining time
+     - If video longer than audio: Minimum 5s for image, then video (cut off)
+   - Without main audio:
+     - Image shown for 5 seconds, then video plays in full
+8. Multiple images, no videos:
+   - With main audio: Equal time for each, no looping
+   - Without main audio: 5 seconds for each image
+9. Margin and fade-out:
+   - Main audio margin (0.5s lead-in, 2s tail by default) only applied when main audio is present
+   - The tail margin duration is configurable and determines the fade-out duration
+   - Fade-out is applied to background music and visuals during the tail margin
+   - No fade-out applied to main audio
+   - Note: The default 2-second tail margin mentioned above also serves as the default fade-out duration for background music and visuals. This duration can be customized using the --audiomargin parameter, where the second value represents both the tail margin and fade-out duration.
+10. Background music:
+    - With main audio: Loops and fades out at the end of the main audio (including margin)
+    - Without main audio: Loops and fades out at the end of the visual sequence
 
-## Supported File Formats
+Note: When main audio is provided, it always determines the total duration of the output. The visual sequence will be cut off (with fade-out) if it's longer than the main audio duration (including margins). When no main audio is provided, the visual sequence determines the total duration.
+
+### Supported File Formats
 - Audio: WAV, MP3, M4A, and other formats supported by ffmpeg
-- Images: PNG, JPG, JPEG, GIF (first frame only), and other formats supported by Pillow
+- Images: PNG, JPG, JPEG, GIF, and other formats supported by Pillow
 - Video: MP4, AVI, MOV, and other formats supported by ffmpeg
 
 ## AI-Powered Features
@@ -218,6 +248,7 @@ Remember: The goal is to provide a simple way for users to create audio-backed v
 - YouTube content access is subject to the platform's policies and may change
 - AI-generated content quality can vary and may require manual review
 - Background music looping might create noticeable seams for short audio clips
+- When no main audio is provided, the visual sequence determines the total duration
 
 ## Troubleshooting
 1. **ffmpeg not found**: Ensure ffmpeg is installed and added to your system PATH

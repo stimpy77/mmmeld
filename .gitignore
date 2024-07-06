@@ -168,4 +168,9 @@ cython_debug/
 *.wav
 *.mp3
 *.mp4
+*.webm
 mmmeld.ps1
+
+temp_assets/
+
+!test_media/*
