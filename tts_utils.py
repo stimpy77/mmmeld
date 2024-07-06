@@ -1,9 +1,58 @@
 import os
+import re
+import logging
+import requests
 from openai import OpenAI
 from deepgram import Deepgram
 import asyncio
-import aiofiles
-from config import TEMP_ASSETS_FOLDER, ELEVENLABS_VOICE_ID, OPENAI_VOICE_ID, DEEPGRAM_VOICE_ID
+
+from config import (
+    TEMP_ASSETS_FOLDER,
+    ELEVENLABS_VOICE_ID,
+    OPENAI_VOICE_ID,
+    DEEPGRAM_VOICE_ID
+)
+
+MAX_CHUNK_SIZE = 4096
+
+def ensure_temp_folder():
+    if not os.path.exists(TEMP_ASSETS_FOLDER):
+        os.makedirs(TEMP_ASSETS_FOLDER)
+
+def split_text_into_chunks(text, max_chunk_size=MAX_CHUNK_SIZE):
+    # Split text into chunks of max_chunk_size or less
+    chunks = []
+    current_chunk = []
+
+    for line in text.split('\n'):
+        if len(line) > max_chunk_size:
+            # If the line itself is too long, split it further
+            for sentence in re.split(r'(?<=[.?!])\s+', line):
+                if len(sentence) > max_chunk_size:
+                    # If the sentence itself is too long, split it further
+                    for word in sentence.split(' '):
+                        if len(' '.join(current_chunk + [word])) > max_chunk_size:
+                            chunks.append(' '.join(current_chunk))
+                            current_chunk = [word]
+                        else:
+                            current_chunk.append(word)
+                else:
+                    if len(' '.join(current_chunk + [sentence])) > max_chunk_size:
+                        chunks.append(' '.join(current_chunk))
+                        current_chunk = [sentence]
+                    else:
+                        current_chunk.append(sentence)
+        else:
+            if len(' '.join(current_chunk + [line])) > max_chunk_size:
+                chunks.append(' '.join(current_chunk))
+                current_chunk = [line]
+            else:
+                current_chunk.append(line)
+
+    if current_chunk:
+        chunks.append(' '.join(current_chunk))
+
+    return chunks
 
 def generate_speech(text, voice_id=None, autofill=False, tts_provider='elevenlabs', files_to_cleanup=None):
     print(f"Generating speech for text:\n{text}\n")
@@ -30,7 +79,7 @@ def generate_speech(text, voice_id=None, autofill=False, tts_provider='elevenlab
 
     tts_provider = tts_provider.lower()
     for i, chunk in enumerate(chunks):
-        logger.info(f"Generating speech for chunk {i + 1}/{len(chunks)} with {tts_provider}")
+        print(f"Generating speech for chunk {i + 1}/{len(chunks)} with {tts_provider}")
         if tts_provider == 'elevenlabs':
             audio_filename, title, _ = generate_speech_with_elevenlabs(chunk, voice_id)
         elif tts_provider == 'openai':
@@ -109,3 +158,20 @@ async def generate_deepgram_speech(text, voice_id=None):
 
 def generate_deepgram_speech_sync(text, voice_id=None):
     return asyncio.run(generate_deepgram_speech(text, voice_id))
+
+def generate_title_from_text(text, max_length=50):
+    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant that generates concise and descriptive titles for audio files based on their text content."},
+            {"role": "user", "content": f"Generate a concise and descriptive title for an audio file based on this text: {text}"}
+        ]
+    )
+    title = response.choices[0].message.content.strip()
+    # Remove any special characters
+    title = re.sub(r'[^\w\s-]', '', title)
+    # Replace spaces with underscores
+    title = re.sub(r'\s+', '_', title)
+    # Truncate to max_length
+    return title[:max_length]

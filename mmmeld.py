@@ -2,14 +2,26 @@
 
 import sys
 import logging
-from config import setup_logging, parse_arguments, set_api_keys
-from audio_utils import get_audio_source
-from video_utils import generate_video
-from image_utils import get_image_inputs
-from file_utils import cleanup_files, get_default_output_path
+import os
+import re
+import math
+import subprocess
+from urllib.parse import urlparse
 
-# Add this line
-DEFAULT_BG_MUSIC_VOLUME = 0.2  # You can adjust this value as needed
+from config import setup_logging, parse_arguments, set_api_keys
+from audio_utils import get_audio_source, get_background_music
+from video_utils import generate_video, get_media_duration, is_video
+from image_utils import get_image_inputs, generate_image
+from file_utils import (
+    cleanup_files, get_default_output_path, get_multiline_input, 
+    download_youtube_audio, download_image, 
+    ensure_temp_folder, sanitize_filename
+)
+from tts_utils import generate_speech
+
+# Constants
+DEFAULT_BG_MUSIC_VOLUME = 0.2
+TEMP_ASSETS_FOLDER = "temp_assets"
 
 def validate_input(input_type, value):
     if input_type == "audio":
@@ -26,6 +38,54 @@ def get_valid_input(prompt, validator, error_message):
         if validator(user_input):
             return user_input
         print(error_message)
+
+def process_image_input(image_input, image_description=None, files_to_cleanup=[]):
+    if image_input.lower() == 'generate':
+        if not image_description:
+            image_description = input("Enter a description for the image to generate (or press Enter to use default): ")
+        if not image_description:
+            image_description = "A visual representation of audio"
+        generated_image = generate_image(image_description, "generated_image")
+        if generated_image:
+            files_to_cleanup.append(generated_image)
+            return [generated_image]
+        else:
+            logging.error("Failed to generate image")
+            return []
+    
+    image_inputs = [input.strip() for input in image_input.split(',') if input.strip()]
+    
+    processed_inputs = []
+    
+    for input in image_inputs:
+        if input.lower() == 'generate':
+            generated_image = generate_image(image_description or "A visual representation of audio", "generated_audio")
+            if generated_image:
+                files_to_cleanup.append(generated_image)
+                processed_inputs.append(generated_image)
+            else:
+                logging.error("Failed to generate image")
+        elif os.path.isfile(input):
+            processed_inputs.append(input)
+        elif input.startswith(('http://', 'https://')):
+            if "youtube.com" in input or "youtu.be" in input:
+                print(f"Downloading video from YouTube: {input}")
+                downloaded_video = download_youtube_video(input, files_to_cleanup)
+                if downloaded_video:
+                    processed_inputs.append(downloaded_video)
+                else:
+                    logging.error(f"Failed to download video: {input}")
+            else:
+                downloaded_file = download_image(input)
+                if downloaded_file:
+                    processed_inputs.append(downloaded_file)
+                    files_to_cleanup.append(downloaded_file)
+                else:
+                    logging.error(f"Failed to download: {input}")
+        else:
+            logging.error(f"Invalid input: {input}")
+    
+    return processed_inputs
 
 def main():
     args = parse_arguments()
@@ -67,19 +127,17 @@ def main():
                     print("Invalid input. Please try again.")
 
         # Handle image/video inputs
-        if args.image:
-            image_inputs = get_image_inputs(args, title, description, files_to_cleanup)
-        else:
-            image_inputs = []
-            while True:
-                image_input = input("Enter path/URL to image/video file, 'generate' for AI image, or press Enter to finish: ")
-                if not image_input:
-                    break
-                new_inputs = process_image_input(image_input, description, files_to_cleanup)
-                if new_inputs:
-                    image_inputs.extend(new_inputs)
-                else:
-                    print("Invalid input. Please try again.")
+        image_inputs = get_image_inputs(args, title, description, files_to_cleanup)
+
+        if not image_inputs:
+            print("No valid image inputs provided. Using a default image.")
+            default_image = generate_image("A default visual representation for audio", title)
+            if default_image:
+                image_inputs = [default_image]
+                files_to_cleanup.append(default_image)
+            else:
+                print("Failed to generate a default image. Exiting.")
+                sys.exit(1)
 
         # Handle background music
         if args.bg_music:
@@ -89,15 +147,16 @@ def main():
             bg_music_volume = args.bg_music_volume if args.bg_music_volume is not None else DEFAULT_BG_MUSIC_VOLUME
 
         # Handle output path
-        output_path = args.output or (get_default_output_path(audio_path, title, image_inputs) if args.autofill else 
-                                      input(f"Enter the path for the output video file (press Enter for default: {get_default_output_path(audio_path, title, image_inputs)}): "))
+        default_output = get_default_output_path(audio_path, title, image_inputs)
+        output_path = args.output or (default_output if args.autofill else 
+                                      input(f"Enter the path for the output video file (press Enter for default: {default_output}): ") or default_output)
 
         # Check if either audio or images/videos are provided
         if not audio_path and not image_inputs:
             print("Error: You must provide either audio or images/videos.")
             sys.exit(1)
 
-        if generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_music_volume, start_margin, end_margin):
+        if generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_music_volume, start_margin, end_margin, files_to_cleanup):
             print(f"Video created successfully at {output_path}")
             if audio_path:
                 print(f"The length of the video is the main audio length plus {start_margin + end_margin} seconds.")

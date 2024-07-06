@@ -39,7 +39,7 @@ def is_video(file_path):
         return True
     return False
 
-def create_visual_sequence(inputs, total_duration):
+def create_visual_sequence(inputs, total_duration, files_to_cleanup):
     video_parts = []
     current_duration = 0
 
@@ -52,6 +52,7 @@ def create_visual_sequence(inputs, total_duration):
             temp_output = os.path.join(TEMP_ASSETS_FOLDER, f"temp_{os.path.basename(input_file)}.mp4")
             create_video_from_image(input_file, 5.0, temp_output)
             video_parts.append(temp_output)
+            files_to_cleanup.append(temp_output)
         
         current_duration += input_duration
 
@@ -63,6 +64,8 @@ def create_video_from_image(image_path, duration, output_path, fps=30):
         "-loop", "1",
         "-i", image_path,
         "-c:v", "libx264",
+        "-preset", "veryslow",  # Use a slow preset for high quality
+        "-crf", "0",  # Use lossless encoding
         "-t", str(duration),
         "-pix_fmt", "yuv420p",
         "-vf", f"scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
@@ -71,7 +74,7 @@ def create_video_from_image(image_path, duration, output_path, fps=30):
     ]
     subprocess.run(ffmpeg_command, check=True)
 
-def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music_volume, start_margin, end_margin):
+def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music_volume, start_margin, end_margin, files_to_cleanup):
     main_audio_duration = get_media_duration(main_audio_path) if main_audio_path else 0
     
     if main_audio_path:
@@ -82,9 +85,8 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
         fade_duration = 0
 
     ensure_temp_folder()
-    files_to_cleanup = []
 
-    video_parts, visual_duration = create_visual_sequence(inputs, total_duration)
+    video_parts, visual_duration = create_visual_sequence(inputs, total_duration, files_to_cleanup)
 
     if not main_audio_path and visual_duration > total_duration:
         total_duration = visual_duration
@@ -100,7 +102,7 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
         filter_complex.append(f"[v0]fade=t=out:st={total_duration-fade_duration}:d={fade_duration}[final_video]")
     else:
         filter_complex.append("[0:v]fps=30,format=yuv420p,setpts=PTS-STARTPTS[final_video]")
-
+        
     # Audio processing
     if main_audio_path:
         filter_complex.append(f"[1:a]adelay={int(start_margin*1000)}|{int(start_margin*1000)},apad=pad_dur={end_margin}[main_audio]")
@@ -159,7 +161,5 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
     except subprocess.CalledProcessError as e:
         print(f"Error running ffmpeg command: {e}")
         return False
-    finally:
-        cleanup_files(files_to_cleanup)
 
     return True

@@ -1,13 +1,20 @@
 from file_utils import download_image, generate_image
 import logging
+from file_utils import sanitize_filename
+from openai import OpenAI
+from PIL import Image
+from io import BytesIO
+import requests
+import os
 
 def get_image_inputs(args, title, description, files_to_cleanup):
     if args.image:
         image_inputs = []
         for input_path in args.image.split(','):
             try:
-                if input_path == "generate":
-                    generated_image_path = generate_image(title, description)
+                if input_path.lower() == "generate":
+                    image_description = args.image_description or description or f"A visual representation of audio titled '{title}'"
+                    generated_image_path = generate_image(image_description, title)
                     image_inputs.append(generated_image_path)
                     files_to_cleanup.append(generated_image_path)
                 elif input_path.startswith("http"):
@@ -19,7 +26,29 @@ def get_image_inputs(args, title, description, files_to_cleanup):
             except Exception as e:
                 logging.error(f"Error processing image input {input_path}: {str(e)}")
     else:
-        image_inputs = input("Enter the path(s) to image/video file(s), separated by commas: ").split(',')
+        image_inputs = []
+        while True:
+            input_path = input("Enter path/URL to image/video file, 'generate' for AI image, or press Enter to finish: ").strip()
+            if not input_path:
+                break
+            try:
+                if input_path.lower() == "generate":
+                    image_description = input("Enter a description for the image to generate (or press Enter to use default): ")
+                    if not image_description:
+                        image_description = f"A visual representation of audio titled '{title}'"
+                    generated_image_path = generate_image(image_description, title)
+                    image_inputs.append(generated_image_path)
+                    files_to_cleanup.append(generated_image_path)
+                elif input_path.startswith("http"):
+                    downloaded_image_path = download_image(input_path)
+                    image_inputs.append(downloaded_image_path)
+                    files_to_cleanup.append(downloaded_image_path)
+                else:
+                    image_inputs.append(input_path)
+                print(f"Added image: {image_inputs[-1]}")
+            except Exception as e:
+                logging.error(f"Error processing image input {input_path}: {str(e)}")
+                print("Failed to process input. Please try again.")
 
     return image_inputs
 
@@ -43,3 +72,41 @@ def generate_image_prompt(description, is_retry=False):
         ]
     )
     return response.choices[0].message.content
+
+def generate_image(prompt, title, max_retries=3):
+    client = OpenAI(api_key=os.environ.get("OPENAI_PERSONAL_API_KEY") or os.environ.get("OPENAI_API_KEY"))
+    
+    for attempt in range(max_retries):
+        try:
+            response = client.images.generate(
+                prompt=prompt,
+                model="dall-e-3",
+                n=1,
+                quality="hd",
+                size="1024x1024"
+            )
+            
+            image_url = response.data[0].url
+            img_response = requests.get(image_url)
+            img = Image.open(BytesIO(img_response.content))
+            
+            # Create a filename based on the title and prompt
+            filename = f"{sanitize_filename(title)}_{sanitize_filename(prompt[:50])}.png"
+            img_path = os.path.join("temp_assets", filename)
+            img.save(img_path)
+            
+            print(f"Image generated and saved: {img_path}")
+            return img_path
+
+        except Exception as e:
+            if "content_policy_violation" in str(e):
+                print("Content policy violation. Regenerating prompt...")
+                prompt = generate_image_prompt(prompt, is_retry=True)
+            else:
+                print(f"Error generating image: {e}")
+            
+            if attempt == max_retries - 1:
+                print("Max retries reached. Image generation failed.")
+                return None
+
+    return None
