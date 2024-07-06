@@ -78,10 +78,14 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
         total_duration = main_audio_duration + start_margin + end_margin
     else:
         total_duration = sum(get_media_duration(input_file) for input_file in inputs)
+        fade_duration = 0  # No fade when there's no main audio
         if all(not is_video(input_file) for input_file in inputs):
             total_duration = max(total_duration, 5 * len(inputs))
 
-    fade_duration = end_margin if main_audio_path else min(2.0, total_duration / 10)
+    if main_audio_path:
+        fade_duration = end_margin
+    else:
+        fade_duration = min(2.0, total_duration / 10)
 
     ensure_temp_folder()
     files_to_cleanup = []
@@ -97,8 +101,11 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
     filter_complex = []
 
     # Video processing with fade
-    filter_complex.append(f"[0:v]fps=30,format=yuv420p,trim=duration={total_duration},setpts=PTS-STARTPTS[v0]")
-    filter_complex.append(f"[v0]fade=t=out:st={total_duration-fade_duration}:d={fade_duration}[final_video]")
+    if main_audio_path:
+        filter_complex.append(f"[0:v]fps=30,format=yuv420p,trim=duration={total_duration},setpts=PTS-STARTPTS[v0]")
+        filter_complex.append(f"[v0]fade=t=out:st={total_duration-fade_duration}:d={fade_duration}[final_video]")
+    else:
+        filter_complex.append(f"[0:v]fps=30,format=yuv420p,trim=duration={total_duration},setpts=PTS-STARTPTS[final_video]")
 
     # Audio processing
     audio_index = 1
@@ -110,7 +117,10 @@ def generate_video(inputs, main_audio_path, bg_music_path, output_path, bg_music
         bg_music_duration = get_media_duration(bg_music_path)
         loop_count = math.ceil(total_duration / bg_music_duration)
         filter_complex.append(f"[{audio_index}:a]aloop=loop={loop_count-1}:size={int(bg_music_duration*48000)}[looped_bg]")
-        filter_complex.append(f"[looped_bg]volume={bg_music_volume},afade=t=out:st={total_duration-fade_duration}:d={fade_duration}[bg_audio]")
+        if main_audio_path:
+            filter_complex.append(f"[looped_bg]volume={bg_music_volume},afade=t=out:st={total_duration-fade_duration}:d={fade_duration}[bg_audio]")
+        else:
+            filter_complex.append(f"[looped_bg]volume={bg_music_volume}[bg_audio]")
 
     if main_audio_path and bg_music_path:
         filter_complex.append("[main_audio][bg_audio]amix=inputs=2:duration=longest[final_audio]")
