@@ -7,6 +7,7 @@ import re
 import math
 import subprocess
 from urllib.parse import urlparse
+from pathlib import Path
 
 from config import setup_logging, parse_arguments, set_api_keys
 from audio_utils import get_audio_source, get_background_music
@@ -21,7 +22,7 @@ from tts_utils import generate_speech
 
 # Constants
 DEFAULT_BG_MUSIC_VOLUME = 0.2
-TEMP_ASSETS_FOLDER = "temp_assets"
+TEMP_ASSETS_FOLDER = Path("temp_assets")
 
 def validate_input(input_type, value):
     if input_type == "audio":
@@ -100,6 +101,9 @@ def main():
     files_to_cleanup = []
 
     try:
+        # Ensure temp folder exists
+        TEMP_ASSETS_FOLDER.mkdir(exist_ok=True)
+
         # Handle audio source
         if args.audio or args.text:
             audio_path, title, description = get_audio_source(args, files_to_cleanup)
@@ -151,12 +155,16 @@ def main():
         output_path = args.output or (default_output if args.autofill else 
                                       input(f"Enter the path for the output video file (press Enter for default: {default_output}): ") or default_output)
 
+        # Ensure output_path is not in TEMP_ASSETS_FOLDER
+        if Path(output_path).parent == TEMP_ASSETS_FOLDER:
+            output_path = Path.cwd() / Path(output_path).name
+
         # Check if either audio or images/videos are provided
         if not audio_path and not image_inputs:
             print("Error: You must provide either audio or images/videos.")
             sys.exit(1)
 
-        if generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_music_volume, start_margin, end_margin, files_to_cleanup):
+        if generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_music_volume, start_margin, end_margin, TEMP_ASSETS_FOLDER):
             print(f"Video created successfully at {output_path}")
             if audio_path:
                 print(f"The length of the video is the main audio length plus {start_margin + end_margin} seconds.")
@@ -170,10 +178,16 @@ def main():
         if args.cleanup:
             print("Cleaning up temporary files...")
             cleanup_files(files_to_cleanup)
+            if TEMP_ASSETS_FOLDER.exists():
+                for file in TEMP_ASSETS_FOLDER.iterdir():
+                    file.unlink()
+                TEMP_ASSETS_FOLDER.rmdir()
         else:
             print("Temporary files were not cleaned up. Use --cleanup flag to remove them in future runs.")
             print("Files that would be cleaned up:")
             for file in files_to_cleanup:
+                print(f"  {file}")
+            for file in TEMP_ASSETS_FOLDER.iterdir():
                 print(f"  {file}")
 
     except Exception as e:
