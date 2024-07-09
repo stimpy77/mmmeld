@@ -203,19 +203,21 @@ Remember: The goal is to provide a simple way for users to create audio-backed v
      - If total video time <= audio time: Play each video in sequence, then loop and cut any ongoing iteration off at audio end after margin
      - If total video time > audio time: Play each video in sequence, cut the sequence at audio end
    - Without main audio: Play videos in sequence once
-5. Videos + images, with main audio:
+5. Videos then images, with main audio:
    - If total video time < audio time:
      - Play videos once in sequence
      - Distribute remaining time equally among images, even if less than 5 seconds
    - If total video time >= audio time:
      - Distribute 5 seconds each to image
      - Truncate sequence to fit audio
-6. Videos + images, without main audio:
+6. Videos then images, without main audio:
    - Play videos in sequence
    - Show each image for 5 seconds
-7. Image(s) + video:
+7. Image(s) then video:
    - With main audio:
-     - End of video is "anchored" to the end of the audio
+     - If the video is at least half as long as the main audio,
+       - end of video is "anchored" to the end of the audio
+       - else, image and video are played sequentially, sequence is looped and cut off at audio end
      - Image(s) shown first, filling the remaining time
      - If video longer than audio: Minimum 5s for image(s), then video (cut off)
    - Without main audio:
@@ -238,7 +240,10 @@ Remember: The goal is to provide a simple way for users to create audio-backed v
     - With main audio: Loops and fades out at the end of the main audio (including margin)
     - Without main audio: Loops and fades out at the end of the visual sequence
 
-Note: When main audio is provided, it always determines the total duration of the output. The visual sequence will be cut off (with fade-out) if it's longer than the main audio duration (including margins). When no main audio is provided, the visual sequence determines the total duration.
+Note: When main audio is provided, it always determines the total duration of the output. The 
+visual sequence will be cut off (with fade-out in audio tail margin) if it's longer than the 
+main audio duration (including margins). When no main audio is provided, the visual sequence 
+determines the total duration.
 
 ### Supported File Formats
 - Audio: WAV, MP3, M4A, and other formats supported by ffmpeg
