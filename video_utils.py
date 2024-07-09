@@ -165,7 +165,7 @@ def preprocess_inputs(image_inputs, temp_folder, target_size=(1920, 1080)):
                 processed_inputs.append(input_path)
                 continue
         
-        if is_image(input_path) or video_info['width'] != target_size[0] or video_info['height'] != target_size[1]:
+        if is_image(input_path) or (is_video(input_path) and (video_info['width'] != target_size[0] or video_info['height'] != target_size[1])):
             output_path = os.path.join(temp_folder, f"processed_{os.path.basename(input_path)}")
             processed_inputs.append(resize_and_pad(input_path, output_path, target_size))
         else:
