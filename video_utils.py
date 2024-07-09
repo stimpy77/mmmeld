@@ -185,8 +185,10 @@ def get_video_info(file_path):
 def create_visual_sequence(processed_inputs, total_duration, temp_folder, has_audio):
     temp_sequence = os.path.join(temp_folder, "temp_sequence.mkv")
     filter_complex = []
+    inputs = []
     
     for i, input_file in enumerate(processed_inputs):
+        inputs.extend(["-i", input_file])
         duration = get_media_duration(input_file)
         if has_audio:
             trim_duration = min(duration, total_duration)
@@ -199,10 +201,6 @@ def create_visual_sequence(processed_inputs, total_duration, temp_folder, has_au
             filter_complex.append(f"[{i}:v]trim=duration={trim_duration},setpts=PTS-STARTPTS[v{i}];")
     
     filter_complex.append(f"{''.join([f'[v{i}]' for i in range(len(processed_inputs))])}concat=n={len(processed_inputs)}:v=1:a=0[outv]")
-    
-    inputs = []
-    for input_file in processed_inputs:
-        inputs.extend(["-i", input_file])
     
     cmd = ["ffmpeg", "-y", "-hwaccel", "auto"] + inputs + [
         "-filter_complex", "".join(filter_complex),
@@ -223,7 +221,7 @@ def generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_musi
     total_duration = calculate_total_duration(audio_path, processed_inputs, start_margin, end_margin)
     visual_sequence = create_visual_sequence(processed_inputs, total_duration, temp_folder, bool(audio_path))
 
-    print(f"Debug: Total duration: {total_duration}")
+    logger.info(f"Total duration: {total_duration}")
 
     filter_complex = []
     inputs = ["-i", visual_sequence]
@@ -231,23 +229,22 @@ def generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_musi
     if audio_path:
         inputs.extend(["-i", audio_path])
         filter_complex.append(f"[1:a]adelay={int(start_margin*1000)}|{int(start_margin*1000)},apad=pad_dur={end_margin}[main_audio];")
-        # Loop the visual sequence to match the total duration
         filter_complex.append(f"[0:v]loop=-1:size={int(total_duration*30)}:start=0,setpts=N/FRAME_RATE/TB[looped_video];")
         filter_complex.append(f"[looped_video]trim=duration={total_duration},setpts=PTS-STARTPTS[trimmed_video];")
     else:
-        # Handle case with no main audio
         filter_complex.append("[0:v]setpts=PTS-STARTPTS[trimmed_video];")
         if any(is_video(input_path) for input_path in processed_inputs):
+            video_audio_inputs = []
             for i, input_path in enumerate(processed_inputs):
                 if is_video(input_path):
                     inputs.extend(["-i", input_path])
-                    filter_complex.append(f"[{i+1}:a]asetpts=PTS-STARTPTS[a{i}];")
-            if len(filter_complex) > 1:
-                filter_complex.append(f"{''.join([f'[a{i}]' for i in range(len(processed_inputs))])}concat=n={sum(1 for _ in processed_inputs if is_video(_))}:v=0:a=1[video_audio];")
+                    video_audio_inputs.append(f"[{len(inputs)//2 - 1}:a]")
+            if video_audio_inputs:
+                filter_complex.append(f"{''.join(video_audio_inputs)}concat=n={len(video_audio_inputs)}:v=0:a=1[video_audio];")
     
     if bg_music_path:
         inputs.extend(["-i", bg_music_path])
-        bg_index = len(inputs) // 2  # Calculate the correct index for background music
+        bg_index = len(inputs) // 2 - 1
         filter_complex.append(f"[{bg_index}:a]aloop=-1:size=2e+09,volume={bg_music_volume}[bg_music];")
     
     filter_complex.append("[trimmed_video]fps=30,format=yuv420p")
@@ -266,27 +263,19 @@ def generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_musi
         filter_complex.append("[bg_music]acopy[final_audio];")
     elif any(is_video(input_path) for input_path in processed_inputs):
         filter_complex.append("[video_audio]acopy[final_audio];")
-    
-    if audio_path or bg_music_path or any(is_video(input_path) for input_path in processed_inputs):
-        cmd = ["ffmpeg", "-y"] + inputs + [
-            "-filter_complex", "".join(filter_complex),
-            "-map", "[faded_video]", "-map", "[final_audio]",
-            "-c:v", "libx264", "-preset", "slow", "-crf", "18",  # High quality H.264 encoding
-            "-c:a", "aac", "-b:a", "192k",  # High quality AAC audio
-            "-movflags", "+faststart",  # Optimize for web playback
-            "-t", str(total_duration),
-            output_path
-        ]
     else:
-        # Handle case with only images and no audio
-        cmd = ["ffmpeg", "-y"] + inputs + [
-            "-filter_complex", "".join(filter_complex),
-            "-map", "[faded_video]",
-            "-c:v", "libx264", "-preset", "slow", "-crf", "18",  # High quality H.264 encoding
-            "-movflags", "+faststart",  # Optimize for web playback
-            "-t", str(total_duration),
-            output_path
-        ]
+        # No audio source available
+        filter_complex.append("anullsrc=channel_layout=stereo:sample_rate=44100[final_audio];")
+    
+    cmd = ["ffmpeg", "-y"] + inputs + [
+        "-filter_complex", "".join(filter_complex),
+        "-map", "[faded_video]", "-map", "[final_audio]",
+        "-c:v", "libx264", "-preset", "slow", "-crf", "18",
+        "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
+        "-t", str(total_duration),
+        output_path
+    ]
     
     logger.info(f"Generating final video: {' '.join(cmd)}")
     run_ffmpeg_command(cmd)
@@ -298,5 +287,56 @@ def is_image(file_path):
     """Check if the file is an image."""
     image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff']
     return os.path.splitext(file_path)[1].lower() in image_extensions
+
+def validate_video(output_path, expected_duration, has_audio):
+    """Validate the generated video."""
+    cmd = [
+        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", output_path
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    actual_duration = float(result.stdout.strip())
+    
+    logger.info(f"Validating video: expected duration={expected_duration}, actual duration={actual_duration}")
+    
+    if abs(actual_duration - expected_duration) > 0.5:  # Allow 0.5 second tolerance
+        logger.error(f"Video duration mismatch: expected {expected_duration}, got {actual_duration}")
+        return False
+    
+    if has_audio:
+        cmd = ["ffprobe", "-v", "error", "-select_streams", "a", "-count_packets",
+               "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", output_path]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        audio_packets = int(result.stdout.strip())
+        
+        if audio_packets == 0:
+            logger.error("Video should have audio, but no audio packets found")
+            return False
+    
+    logger.info("Video validation passed")
+    return True
+
+# Validation tests
+def run_validation_tests(temp_folder):
+    logger.info("Running validation tests")
+    
+    # Test 1: Single image with audio
+    image_path = os.path.join(temp_folder, "test_image.png")
+    subprocess.run(["convert", "-size", "100x100", "xc:white", image_path])
+    audio_path = os.path.join(temp_folder, "test_audio.wav")
+    subprocess.run(["ffmpeg", "-f", "lavfi", "-i", "sine=frequency=1000:duration=5", audio_path])
+    
+    output_path = os.path.join(temp_folder, "test1_output.mp4")
+    generate_video([image_path], audio_path, None, output_path, 0.2, 0.5, 2.0, temp_folder)
+    assert validate_video(output_path, 7.5, True), "Test 1 failed"
+    
+    # Test 2: Single image without audio
+    output_path = os.path.join(temp_folder, "test2_output.mp4")
+    generate_video([image_path], None, None, output_path, 0.2, 0.5, 2.0, temp_folder)
+    assert validate_video(output_path, 5.0, False), "Test 2 failed"
+    
+    # Add more tests here for other scenarios
+    
+    logger.info("All validation tests passed")
 
 # Ensure to verify requirements against README.md and specifications
