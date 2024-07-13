@@ -270,12 +270,12 @@ def generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_musi
     processed_inputs = preprocess_inputs(image_inputs, temp_folder)
     total_duration = calculate_total_duration(audio_path, processed_inputs, start_margin, end_margin)
     visual_sequence, audio_sequence = create_visual_sequence(processed_inputs, total_duration, temp_folder, bool(audio_path))
+    fade_duration = 0
 
     logger.info(f"Total duration: {total_duration}")
 
     filter_complex = []
     inputs = ["-i", visual_sequence, "-i", audio_sequence]
-    fade_duration = 0
     
     if audio_path:
         inputs.extend(["-i", audio_path])
@@ -292,8 +292,7 @@ def generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_musi
     
     filter_complex.append("[trimmed_video]fps=30,format=yuv420p")
     if audio_path:
-        fade_duration = min(end_margin, total_duration / 10)
-        filter_complex.append(f",fade=t=out:st={total_duration-fade_duration}:d={fade_duration}")
+        filter_complex.append(f",fade=t=out:st={total_duration-end_margin}:d={end_margin}")
     filter_complex.append("[faded_video];")
     
     if audio_path and bg_music_path:
@@ -305,10 +304,7 @@ def generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_musi
     else:
         filter_complex.append("[1:a]acopy[final_audio];")
     
-    if fade_duration > 0:
-        filter_complex.append(f"[final_audio]afade=t=out:st={total_duration-fade_duration}:d={fade_duration}[faded_audio];")
-    else:
-        filter_complex.append("[final_audio]acopy[faded_audio];")
+    filter_complex.append(f"[final_audio]afade=t=out:st={total_duration-end_margin}:d={end_margin}[faded_audio];")
     
     cmd = ["ffmpeg", "-y"] + inputs + [
         "-filter_complex", "".join(filter_complex),
