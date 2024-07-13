@@ -1,6 +1,7 @@
 import os
 import re
 import requests
+import logging
 from pytube import YouTube
 from config import TEMP_ASSETS_FOLDER, MAX_FILENAME_LENGTH
 
@@ -67,13 +68,13 @@ def download_youtube_audio(url, files_to_cleanup):
         if not audio_stream:
             raise ValueError("No audio stream found for this YouTube video.")
         
-        output_path = os.path.join(TEMP_ASSETS_FOLDER, f"{yt.title}.mp3")
-        audio_stream.download(output_path=TEMP_ASSETS_FOLDER, filename=f"{yt.title}.mp3")
+        output_path = os.path.join(TEMP_ASSETS_FOLDER, f"{sanitize_filename(yt.title)}.mp3")
+        audio_stream.download(output_path=TEMP_ASSETS_FOLDER, filename=f"{sanitize_filename(yt.title)}.mp3")
         files_to_cleanup.append(output_path)
-        return output_path
+        return output_path, yt.title, yt.description
     except Exception as e:
-        print(f"Error downloading YouTube audio: {e}")
-        return None
+        logging.error(f"Error downloading YouTube audio: {str(e)}")
+        return None, None, None
 
 def download_image(url):
     response = requests.get(url)
