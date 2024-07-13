@@ -299,18 +299,26 @@ def generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_musi
         filter_complex.append(f"[main_audio][bg_music]amix=inputs=2:duration=first:dropout_transition=2[final_audio];")
         if fade_duration > 0:
             filter_complex.append(f"[final_audio]afade=t=out:st={total_duration-fade_duration}:d={fade_duration}[faded_audio];")
+        else:
+            filter_complex.append("[final_audio]acopy[faded_audio];")
     elif audio_path:
         filter_complex.append("[main_audio]acopy[final_audio];")
+        if fade_duration > 0:
+            filter_complex.append(f"[final_audio]afade=t=out:st={total_duration-fade_duration}:d={fade_duration}[faded_audio];")
+        else:
+            filter_complex.append("[final_audio]acopy[faded_audio];")
     elif bg_music_path:
         filter_complex.append(f"[1:a][bg_music]amix=inputs=2:duration=first:dropout_transition=2[final_audio];")
         if fade_duration > 0:
             filter_complex.append(f"[final_audio]afade=t=out:st={total_duration-fade_duration}:d={fade_duration}[faded_audio];")
+        else:
+            filter_complex.append("[final_audio]acopy[faded_audio];")
     else:
         filter_complex.append("[1:a]acopy[final_audio];")
     
     cmd = ["ffmpeg", "-y"] + inputs + [
         "-filter_complex", "".join(filter_complex),
-        "-map", "[faded_video]", "-map", "[faded_audio]" if fade_duration > 0 else "[final_audio]",
+        "-map", "[faded_video]", "-map", "[faded_audio]",
         "-c:v", "libx264", "-preset", "slow", "-crf", "18",
         "-c:a", "aac", "-b:a", "192k",
         "-movflags", "+faststart",
