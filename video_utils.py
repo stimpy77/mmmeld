@@ -154,11 +154,14 @@ def resize_and_pad(input_path, output_path, target_size=(1920, 1080)):
     return output_path
 
 def preprocess_inputs(image_inputs, temp_folder, target_size=(1920, 1080)):
-    """Preprocess all input images and videos to ensure consistent size and format."""
+    """Preprocess all input images and videos to ensure consistent size, format, and audio presence."""
     os.makedirs(temp_folder, exist_ok=True)  # Ensure the temporary folder exists
     processed_inputs = []
     for input_path in image_inputs:
         if is_video(input_path):
+            # Ensure video has audio
+            input_path = ensure_video_has_audio(input_path, temp_folder)
+            
             # Check if the video already meets the target size
             video_info = get_video_info(input_path)
             if video_info['width'] == target_size[0] and video_info['height'] == target_size[1]:
@@ -187,6 +190,8 @@ def create_visual_sequence(processed_inputs, total_duration, temp_folder, has_au
     filter_complex = []
     inputs = []
     
+    has_video_input = any(is_video(input_file) for input_file in processed_inputs)
+    
     for i, input_file in enumerate(processed_inputs):
         inputs.extend(["-i", input_file])
         duration = get_media_duration(input_file)
@@ -196,24 +201,72 @@ def create_visual_sequence(processed_inputs, total_duration, temp_folder, has_au
             trim_duration = duration if is_video(input_file) else 5.0
         
         if is_image(input_file):
-            filter_complex.append(f"[{i}:v]loop=loop=-1:size=1:start=0,trim=duration={trim_duration},setpts=PTS-STARTPTS[v{i}];")
+            if not has_audio and has_video_input:
+                # Add silent audio to images when there's no main audio and at least one video input
+                filter_complex.append(f"[{i}:v]loop=loop=-1:size=1:start=0,trim=duration={trim_duration},setpts=PTS-STARTPTS[v{i}];")
+                filter_complex.append(f"aevalsrc=0:duration={trim_duration}[a{i}];")
+            else:
+                filter_complex.append(f"[{i}:v]loop=loop=-1:size=1:start=0,trim=duration={trim_duration},setpts=PTS-STARTPTS[v{i}];")
         else:
             filter_complex.append(f"[{i}:v]trim=duration={trim_duration},setpts=PTS-STARTPTS[v{i}];")
+            if not has_audio:
+                filter_complex.append(f"[{i}:a]atrim=duration={trim_duration},asetpts=PTS-STARTPTS[a{i}];")
     
-    filter_complex.append(f"{''.join([f'[v{i}]' for i in range(len(processed_inputs))])}concat=n={len(processed_inputs)}:v=1:a=0[outv]")
+    if not has_audio and has_video_input:
+        filter_complex.append(f"{''.join([f'[v{i}][a{i}]' for i in range(len(processed_inputs))])}concat=n={len(processed_inputs)}:v=1:a=1[outv][outa]")
+    else:
+        filter_complex.append(f"{''.join([f'[v{i}]' for i in range(len(processed_inputs))])}concat=n={len(processed_inputs)}:v=1:a=0[outv]")
     
     cmd = ["ffmpeg", "-y", "-hwaccel", "auto"] + inputs + [
         "-filter_complex", "".join(filter_complex),
-        "-map", "[outv]",
-        "-c:v", "libx264",  # Use H.264 encoding instead of copying
-        "-preset", "ultrafast",  # Use a ultrafast preset for lossless intermediate
-        "-crf", "0",  # for lossless intermediate
-        temp_sequence
+        "-map", "[outv]"
     ]
+    
+    if not has_audio and has_video_input:
+        cmd.extend(["-map", "[outa]"])
+    
+    cmd.extend([
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "0",
+        "-c:a", "aac",  # Add audio codec for cases with silent audio
+        temp_sequence
+    ])
     
     logger.info(f"Creating visual sequence: {' '.join(cmd)}")
     run_ffmpeg_command(cmd)
     return temp_sequence
+
+def ensure_video_has_audio(input_path, temp_folder):
+    """Ensure that the video has an audio track, even if silent."""
+    output_path = os.path.join(temp_folder, f"audio_ensured_{os.path.basename(input_path)}")
+    
+    # Check if the video already has an audio stream
+    cmd = ["ffprobe", "-v", "error", "-select_streams", "a", "-count_packets",
+           "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", input_path]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    
+    try:
+        audio_packets = int(result.stdout.strip())
+    except ValueError:
+        # If conversion fails, assume no audio packets
+        audio_packets = 0
+    
+    if audio_packets > 0:
+        # Video already has audio, just copy it
+        return input_path
+    
+    # Add silent audio to the video
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-c:v", "copy", "-c:a", "aac", "-shortest",
+        output_path
+    ]
+    
+    logger.info(f"Adding silent audio to video: {' '.join(cmd)}")
+    run_ffmpeg_command(cmd)
+    return output_path
 
 def generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_music_volume, start_margin, end_margin, temp_folder):
     """Generate the final video with audio and background music."""
