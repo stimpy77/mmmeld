@@ -171,6 +171,9 @@ def create_visual_sequence(processed_inputs, total_duration, temp_folder, has_ma
     inputs = []
     
     for i, input_file in enumerate(processed_inputs):
+        # Ensure the input has an audio stream
+        input_file = ensure_video_has_audio(input_file, temp_folder)
+        
         inputs.extend(["-i", input_file])
         duration = get_media_duration(input_file)
         if has_main_audio:
