@@ -18,7 +18,7 @@ Creates a video consisting of images/videos and provided audio. The primary purp
 2. Install Python and required packages:
 
 ```bash
-pip install openai pillow requests tqdm pytube elevenlabs yt-dlp deepgram-sdk aiohttp moviepy
+pip install openai pillow requests tqdm pytube elevenlabs yt-dlp deepgram-sdk aiohttp
 ```
 
 ## Setup

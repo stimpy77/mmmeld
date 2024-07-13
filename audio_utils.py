@@ -16,12 +16,15 @@ def get_audio_source(args, files_to_cleanup):
     title = ""
     description = ""
 
+    if files_to_cleanup is None:
+        files_to_cleanup = []
+
     if args.audio:
         if args.audio == "generate":
             text = args.text or get_multiline_input("Enter the text to generate audio from (press Enter to skip): ")
             if not text:
                 print("No text provided. Skipping audio generation.")
-                return audio_path, title, description
+                return audio_path, title, description, files_to_cleanup
             audio_path, title, description = generate_speech(text, args.voice_id, args.tts_provider, files_to_cleanup)
         elif is_youtube_url(args.audio):
             audio_path, title, description = download_youtube_audio(args.audio, files_to_cleanup)
@@ -42,7 +45,7 @@ def get_audio_source(args, files_to_cleanup):
             title = os.path.splitext(os.path.basename(audio_path))[0]
             description = ""
 
-    return audio_path, title, description
+    return audio_path, title, description, files_to_cleanup
 
 def get_background_music(args, files_to_cleanup):
     bg_music_path = ""

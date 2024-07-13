@@ -77,7 +77,14 @@ def generate_speech(text, voice_id=None, autofill=False, tts_provider='elevenlab
     audio_files = []
     main_title = None
 
+    # Handle the case where tts_provider might be a list
+    if isinstance(tts_provider, list):
+        tts_provider = tts_provider[0] if tts_provider else 'elevenlabs'
     tts_provider = tts_provider.lower()
+    
+    if files_to_cleanup is None:
+        files_to_cleanup = []
+
     for i, chunk in enumerate(chunks):
         print(f"Generating speech for chunk {i + 1}/{len(chunks)} with {tts_provider}")
         if tts_provider == 'elevenlabs':

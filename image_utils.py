@@ -8,48 +8,68 @@ import requests
 import os
 
 def get_image_inputs(args, title, description, files_to_cleanup):
+    logging.info("Starting image input processing")
+    
     if args.image:
+        logging.info(f"Image argument provided: {args.image}")
         image_inputs = []
         for input_path in args.image.split(','):
+            logging.info(f"Processing image input: {input_path}")
             try:
                 if input_path.lower() == "generate":
                     image_description = args.image_description or description or f"A visual representation of audio titled '{title}'"
+                    logging.info(f"Generating image with description: {image_description}")
                     generated_image_path = generate_image(image_description, title)
                     image_inputs.append(generated_image_path)
                     files_to_cleanup.append(generated_image_path)
                 elif input_path.startswith("http"):
+                    logging.info(f"Downloading image from URL: {input_path}")
                     downloaded_image_path = download_image(input_path)
                     image_inputs.append(downloaded_image_path)
                     files_to_cleanup.append(downloaded_image_path)
                 else:
+                    logging.info(f"Using local image file: {input_path}")
                     image_inputs.append(input_path)
             except Exception as e:
                 logging.error(f"Error processing image input {input_path}: {str(e)}")
+    elif args.autofill:
+        logging.info("Autofill enabled, generating default image")
+        image_description = f"A visual representation of audio titled '{title}'"
+        logging.info(f"Generating image with description: {image_description}")
+        generated_image_path = generate_image(image_description, title)
+        image_inputs = [generated_image_path]
+        files_to_cleanup.append(generated_image_path)
     else:
+        logging.info("No image argument provided and autofill not enabled, prompting user for input")
         image_inputs = []
         while True:
             input_path = input("Enter path/URL to image/video file, 'generate' for AI image, or press Enter to finish: ").strip()
             if not input_path:
                 break
+            logging.info(f"User input received: {input_path}")
             try:
                 if input_path.lower() == "generate":
                     image_description = input("Enter a description for the image to generate (or press Enter to use default): ")
                     if not image_description:
                         image_description = f"A visual representation of audio titled '{title}'"
+                    logging.info(f"Generating image with description: {image_description}")
                     generated_image_path = generate_image(image_description, title)
                     image_inputs.append(generated_image_path)
                     files_to_cleanup.append(generated_image_path)
                 elif input_path.startswith("http"):
+                    logging.info(f"Downloading image from URL: {input_path}")
                     downloaded_image_path = download_image(input_path)
                     image_inputs.append(downloaded_image_path)
                     files_to_cleanup.append(downloaded_image_path)
                 else:
+                    logging.info(f"Using local image file: {input_path}")
                     image_inputs.append(input_path)
-                print(f"Added image: {image_inputs[-1]}")
+                logging.info(f"Added image: {image_inputs[-1]}")
             except Exception as e:
                 logging.error(f"Error processing image input {input_path}: {str(e)}")
                 print("Failed to process input. Please try again.")
 
+    logging.info(f"Image input processing complete. Total images: {len(image_inputs)}")
     return image_inputs
 
 def generate_image_prompt(description, is_retry=False):

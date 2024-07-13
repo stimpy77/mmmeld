@@ -9,6 +9,9 @@ import subprocess
 from urllib.parse import urlparse
 from pathlib import Path
 
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 from config import setup_logging, parse_arguments, set_api_keys
 from audio_utils import get_audio_source, get_background_music
 from video_utils import generate_video, get_media_duration, is_video
@@ -87,6 +90,16 @@ def process_image_input(image_input, image_description=None, files_to_cleanup=[]
             logging.error(f"Invalid input: {input}")
     
     return processed_inputs
+    
+def supports_hyperlinks():
+    return sys.stdout.isatty() and 'WT_SESSION' in os.environ
+
+def print_clickable_path(path):
+    abs_path = os.path.abspath(path)
+    if supports_hyperlinks():
+        print(f"\033]8;;file://{abs_path}\033\\{path}\033]8;;\033\\")
+    else:
+        print(path)
 
 def main():
     args = parse_arguments()
@@ -106,7 +119,7 @@ def main():
 
         # Handle audio source
         if args.audio or args.text:
-            audio_path, title, description = get_audio_source(args, files_to_cleanup)
+            audio_path, title, description, files_to_cleanup = get_audio_source(args, files_to_cleanup)
         elif not args.autofill:
             audio_input = get_valid_input(
                 "Enter the path to the audio file, YouTube URL, 'generate' for text-to-speech, or press Enter to skip: ",
@@ -189,6 +202,7 @@ def main():
                 print(f"  {file}")
             for file in TEMP_ASSETS_FOLDER.iterdir():
                 print(f"  {file}")
+        print_clickable_path(output_path)
 
     except Exception as e:
         logging.exception("An error occurred during video generation")

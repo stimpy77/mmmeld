@@ -6,7 +6,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (`$args.Count -eq 0) {
     python "$scriptDir\mmmeld.py"
 } else {
-    python "$scriptDir\mmmeld.py" `$args
+    python "$scriptDir\mmmeld.py" @args
 }
 "@ | Out-File -FilePath "$scriptDir\mmmeld.ps1" -Encoding utf8
 
@@ -40,7 +40,7 @@ function mmmeld {
     if (`$args.Count -eq 0) {
         & "$localBinPath\mmmeld.ps1"
     } else {
-        & "$localBinPath\mmmeld.ps1" `$args
+        & "$localBinPath\mmmeld.ps1" @args
     }
 }
 "@
