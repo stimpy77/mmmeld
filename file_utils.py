@@ -76,8 +76,29 @@ def download_youtube_audio(url, files_to_cleanup):
         files_to_cleanup.append(output_path)
         return output_path, yt.title, yt.description
     except Exception as e:
-        logging.error(f"Error downloading YouTube audio: {str(e)}")
-        return None, None, None
+        logging.error(f"Error downloading YouTube audio with pytube: {str(e)}")
+        logging.info("Attempting to download with yt-dlp...")
+        
+        try:
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': os.path.join(TEMP_ASSETS_FOLDER, '%(title)s.%(ext)s'),
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                output_path = ydl.prepare_filename(info)
+                output_path = os.path.splitext(output_path)[0] + ".mp3"
+            
+            files_to_cleanup.append(output_path)
+            return output_path, info.get('title', 'Unknown Title'), info.get('description', '')
+        except Exception as e:
+            logging.error(f"Error downloading YouTube audio with yt-dlp: {str(e)}")
+            return None, None, None
 
 def download_image(url):
     response = requests.get(url)

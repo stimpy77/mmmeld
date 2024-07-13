@@ -3,13 +3,32 @@ import os
 import re
 from tts_utils import generate_speech
 from file_utils import download_youtube_audio, get_multiline_input
-
-import re
+import yt_dlp
+import logging
+from config import TEMP_ASSETS_FOLDER 
 
 # Add this function at the top of the file
 def is_youtube_url(url):
     youtube_regex = r'(https?://)?(www\.)?(youtube|youtu|youtube-nocookie)\.(com|be)/'
     return re.match(youtube_regex, url) is not None
+
+def download_youtube_audio(url, files_to_cleanup):
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': os.path.join(TEMP_ASSETS_FOLDER, '%(title)s.%(ext)s'),
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        output_path = ydl.prepare_filename(info)
+        output_path = os.path.splitext(output_path)[0] + ".mp3"
+    
+    files_to_cleanup.append(output_path)
+    return output_path, info.get('title', 'Unknown Title'), info.get('description', '')
 
 def get_audio_source(args, files_to_cleanup):
     audio_path = ""
