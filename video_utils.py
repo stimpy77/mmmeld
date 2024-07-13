@@ -112,7 +112,7 @@ def run_ffmpeg_command(cmd):
         logger.error(f"An error occurred while running ffmpeg: {str(e)}")
         raise
 
-def resize_and_pad(input_path, output_path, target_size=(1920, 1080)):
+def resize_and_pad(input_path, output_path, target_width, target_height):
     """Resize and pad the input image/video to the target size using hardware acceleration."""
     input_ext = os.path.splitext(input_path)[1].lower()
     output_ext = os.path.splitext(output_path)[1].lower()
@@ -121,7 +121,7 @@ def resize_and_pad(input_path, output_path, target_size=(1920, 1080)):
         "ffmpeg", "-y",
         "-hwaccel", "auto",  # Enable hardware acceleration
         "-i", input_path,
-        "-vf", f"scale={target_size[0]}:{target_size[1]}:force_original_aspect_ratio=decrease,pad={target_size[0]}:{target_size[1]}:(ow-iw)/2:(oh-ih)/2"
+        f"-vf", f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2"
     ]
 
     if is_image(input_path):
@@ -153,28 +153,6 @@ def resize_and_pad(input_path, output_path, target_size=(1920, 1080)):
     run_ffmpeg_command(cmd)
     return output_path
 
-def preprocess_inputs(image_inputs, temp_folder, target_size=(1920, 1080)):
-    """Preprocess all input images and videos to ensure consistent size, format, and audio presence."""
-    os.makedirs(temp_folder, exist_ok=True)  # Ensure the temporary folder exists
-    processed_inputs = []
-    for input_path in image_inputs:
-        if is_video(input_path):
-            # Ensure video has audio
-            input_path = ensure_video_has_audio(input_path, temp_folder)
-            
-            # Check if the video already meets the target size
-            video_info = get_video_info(input_path)
-            if video_info['width'] == target_size[0] and video_info['height'] == target_size[1]:
-                processed_inputs.append(input_path)
-                continue
-        
-        if is_image(input_path) or (is_video(input_path) and (video_info['width'] != target_size[0] or video_info['height'] != target_size[1])):
-            output_path = os.path.join(temp_folder, f"processed_{os.path.basename(input_path)}")
-            processed_inputs.append(resize_and_pad(input_path, output_path, target_size))
-        else:
-            processed_inputs.append(input_path)
-    return processed_inputs
-
 def get_video_info(file_path):
     """Get video information using ffprobe."""
     cmd = [
@@ -185,7 +163,7 @@ def get_video_info(file_path):
     width, height = map(int, result.stdout.strip().split('\n'))
     return {'width': width, 'height': height}
 
-def create_visual_sequence(processed_inputs, total_duration, temp_folder, has_main_audio):
+def create_visual_sequence(processed_inputs, total_duration, temp_folder, has_main_audio, max_width, max_height):
     temp_video_sequence = os.path.join(temp_folder, "temp_video_sequence.mkv")
     temp_audio_sequence = os.path.join(temp_folder, "temp_audio_sequence.wav")
     video_filter_complex = []
@@ -201,10 +179,10 @@ def create_visual_sequence(processed_inputs, total_duration, temp_folder, has_ma
             trim_duration = duration if is_video(input_file) else 5.0
         
         if is_image(input_file):
-            video_filter_complex.append(f"[{i}:v]loop=loop=-1:size=1:start=0,trim=duration={trim_duration},setpts=PTS-STARTPTS[v{i}];")
+            video_filter_complex.append(f"[{i}:v]loop=loop=-1:size=1:start=0,trim=duration={trim_duration},scale={max_width}:{max_height}:force_original_aspect_ratio=decrease,pad={max_width}:{max_height}:(ow-iw)/2:(oh-ih)/2,setpts=PTS-STARTPTS[v{i}];")
             audio_filter_complex.append(f"aevalsrc=0:duration={trim_duration}[a{i}];")
         else:
-            video_filter_complex.append(f"[{i}:v]trim=duration={trim_duration},setpts=PTS-STARTPTS[v{i}];")
+            video_filter_complex.append(f"[{i}:v]trim=duration={trim_duration},scale={max_width}:{max_height}:force_original_aspect_ratio=decrease,pad={max_width}:{max_height}:(ow-iw)/2:(oh-ih)/2,setpts=PTS-STARTPTS[v{i}];")
             audio_filter_complex.append(f"[{i}:a]atrim=duration={trim_duration},asetpts=PTS-STARTPTS[a{i}];")
     
     video_filter_complex.append(f"{''.join([f'[v{i}]' for i in range(len(processed_inputs))])}concat=n={len(processed_inputs)}:v=1:a=0[outv]")
@@ -265,11 +243,30 @@ def ensure_video_has_audio(input_path, temp_folder):
     run_ffmpeg_command(cmd)
     return output_path
 
+def calculate_max_dimensions(inputs):
+    """Calculate the maximum width and height of all input images and videos."""
+    max_width = 0
+    max_height = 0
+
+    for input_path in inputs:
+        cmd = [
+            "ffprobe", "-v", "error", "-show_entries", "stream=width,height",
+            "-of", "csv=p=0:s=x", input_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        width, height = map(int, result.stdout.strip().split('x'))
+        max_width = max(max_width, width)
+        max_height = max(max_height, height)
+
+    return max_width, max_height
+
 def generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_music_volume, start_margin, end_margin, temp_folder):
     """Generate the final video with audio and background music."""
-    processed_inputs = preprocess_inputs(image_inputs, temp_folder)
-    total_duration = calculate_total_duration(audio_path, processed_inputs, start_margin, end_margin)
-    visual_sequence, audio_sequence = create_visual_sequence(processed_inputs, total_duration, temp_folder, bool(audio_path))
+    # Calculate the maximum dimensions of all inputs
+    max_width, max_height = calculate_max_dimensions(image_inputs)
+    
+    total_duration = calculate_total_duration(audio_path, image_inputs, start_margin, end_margin)
+    visual_sequence, audio_sequence = create_visual_sequence(image_inputs, total_duration, temp_folder, bool(audio_path), max_width, max_height)
     fade_duration = 0
 
     logger.info(f"Total duration: {total_duration}")
