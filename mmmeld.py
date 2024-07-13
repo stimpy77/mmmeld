@@ -118,6 +118,8 @@ def main():
         TEMP_ASSETS_FOLDER.mkdir(exist_ok=True)
 
         # Handle audio source
+        if args.text:
+            args.audio = 'generate'  # Force audio generation when text is provided
         if args.audio or args.text:
             audio_path, title, description, files_to_cleanup = get_audio_source(args, files_to_cleanup)
         elif not args.autofill:

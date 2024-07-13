@@ -1,4 +1,4 @@
-from file_utils import download_image, generate_image
+from file_utils import download_image, generate_image, download_youtube_video
 import logging
 from file_utils import sanitize_filename
 from openai import OpenAI
@@ -22,6 +22,11 @@ def get_image_inputs(args, title, description, files_to_cleanup):
                     generated_image_path = generate_image(image_description, title)
                     image_inputs.append(generated_image_path)
                     files_to_cleanup.append(generated_image_path)
+                elif "youtube.com" in input_path or "youtu.be" in input_path:
+                    logging.info(f"Downloading YouTube video: {input_path}")
+                    video_path = download_youtube_video(input_path)
+                    image_inputs.append(video_path)
+                    files_to_cleanup.append(video_path)
                 elif input_path.startswith("http"):
                     logging.info(f"Downloading image from URL: {input_path}")
                     downloaded_image_path = download_image(input_path)
@@ -56,6 +61,11 @@ def get_image_inputs(args, title, description, files_to_cleanup):
                     generated_image_path = generate_image(image_description, title)
                     image_inputs.append(generated_image_path)
                     files_to_cleanup.append(generated_image_path)
+                elif "youtube.com" in input_path or "youtu.be" in input_path:
+                    logging.info(f"Downloading YouTube video: {input_path}")
+                    video_path = download_youtube_video(input_path)
+                    image_inputs.append(video_path)
+                    files_to_cleanup.append(video_path)
                 elif input_path.startswith("http"):
                     logging.info(f"Downloading image from URL: {input_path}")
                     downloaded_image_path = download_image(input_path)

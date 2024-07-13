@@ -4,12 +4,15 @@ import requests
 import logging
 from pytube import YouTube
 from config import TEMP_ASSETS_FOLDER, MAX_FILENAME_LENGTH
+import yt_dlp
 
 def sanitize_filename(filename):
     # Remove invalid characters
     filename = re.sub(r'[<>:"/\\|?*]', '', filename)
     # Remove control characters
     filename = ''.join(char for char in filename if ord(char) >= 32)
+    # Replace problematic characters with underscores
+    filename = re.sub(r'[^\w\-_\. ]', '_', filename)
     # Trim whitespace
     filename = filename.strip()
     # Ensure the filename is not empty
@@ -131,3 +134,47 @@ def cleanup_files(files_to_remove):
         except OSError as e:
             print(f"Error removing file {file}: {e}")
     print(f"Cleanup completed. Temporary folder '{TEMP_ASSETS_FOLDER}' was not removed.")
+
+def download_youtube_video(url):
+    try:
+        yt = YouTube(url)
+        print(f"Downloading video from YouTube: {yt.title}")
+        
+        video_stream = yt.streams.filter(progressive=False).order_by('resolution').desc().first()
+        
+        if not video_stream:
+            raise ValueError("No suitable video stream found for this YouTube video.")
+        
+        sanitized_title = sanitize_filename(yt.title)
+        ascii_title = sanitized_title.encode('ascii', 'ignore').decode('ascii')
+        output_filename = f"{ascii_title}.{video_stream.subtype}"
+        output_path = os.path.join(TEMP_ASSETS_FOLDER, output_filename)
+        
+        video_stream.download(output_path=TEMP_ASSETS_FOLDER, filename=output_filename)
+        
+        print(f"Downloaded video: {output_path}")
+        return output_path
+    except Exception as e:
+        logging.error(f"Error downloading YouTube video with pytube: {str(e)}")
+        logging.info("Attempting to download with yt-dlp...")
+        
+        try:
+            ydl_opts = {
+                'outtmpl': os.path.join(TEMP_ASSETS_FOLDER, '%(title)s.%(ext)s'),
+                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                output_path = ydl.prepare_filename(info)
+            
+            # Sanitize the filename after yt-dlp download
+            sanitized_filename = sanitize_filename(os.path.basename(output_path))
+            ascii_filename = sanitized_filename.encode('ascii', 'ignore').decode('ascii')
+            new_output_path = os.path.join(TEMP_ASSETS_FOLDER, ascii_filename)
+            os.rename(output_path, new_output_path)
+            
+            print(f"Downloaded video with yt-dlp: {new_output_path}")
+            return new_output_path
+        except Exception as e:
+            logging.error(f"Error downloading YouTube video with yt-dlp: {str(e)}")
+            return None
