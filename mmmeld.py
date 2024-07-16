@@ -121,6 +121,9 @@ def main():
         if args.text:
             args.audio = 'generate'  # Force audio generation when text is provided
         if args.audio or args.text:
+            # Convert relative audio path to absolute path
+            if args.audio and not args.audio.lower() == 'generate':
+                args.audio = os.path.abspath(args.audio)
             audio_path, title, description, files_to_cleanup = get_audio_source(args, files_to_cleanup)
         elif not args.autofill:
             audio_input = get_valid_input(
@@ -147,6 +150,9 @@ def main():
 
         # Handle image/video inputs
         image_inputs = get_image_inputs(args, title, description, files_to_cleanup)
+        
+        # Convert relative image paths to absolute paths
+        image_inputs = [os.path.abspath(path) if os.path.exists(path) else path for path in image_inputs]
 
         if not image_inputs:
             print("No valid image inputs provided. Using a default image.")

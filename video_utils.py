@@ -37,21 +37,38 @@ logger = logging.getLogger(__name__)
 def get_media_duration(file_path):
     """Get the duration of a media file using ffprobe. Return 5 seconds for images."""
     if not is_video(file_path):
-        
-        # if file is an audio file, get the audio length
         if is_audio(file_path):
+            logger.info(f"Getting duration for audio file: {file_path}")
             return get_audio_duration(file_path)
-
         else:
+            logger.info(f"Assuming 5 second duration for image: {file_path}")
             return 5.0  # Fixed duration for images
 
+    logger.info(f"Getting duration for video file: {file_path}")
     cmd = [
         "ffprobe", "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", file_path
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    logger.info(f"get_media_duration: file_path={file_path}, output='{result.stdout.strip()}'")
-    return float(result.stdout.strip())
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output = result.stdout.strip()
+        logger.info(f"get_media_duration: file_path={file_path}, output='{output}'")
+        
+        if not output:
+            raise ValueError("ffprobe returned empty output")
+        
+        duration = float(output)
+        return duration
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error running ffprobe: {e}")
+        logger.error(f"ffprobe stderr: {e.stderr}")
+        raise
+    except ValueError as e:
+        logger.error(f"Error parsing ffprobe output: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in get_media_duration: {e}")
+        raise
 
 def is_audio(file_path):
     audio_extensions = ['.mp3', '.wav', '.aac', '.flac', '.ogg']
@@ -63,14 +80,31 @@ def is_video(file_path):
     return os.path.splitext(file_path)[1].lower() in video_extensions
 
 def get_audio_duration(file_path):
-    # get the duration of the audio file using ffprobe
+    """Get the duration of the audio file using ffprobe."""
     cmd = [
         "ffprobe", "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", file_path
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    logger.info(f"get_audio_duration: file_path={file_path}, output='{result.stdout.strip()}'")
-    return float(result.stdout.strip())
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output = result.stdout.strip()
+        logger.info(f"get_audio_duration: file_path={file_path}, output='{output}'")
+        
+        if not output:
+            raise ValueError("ffprobe returned empty output")
+        
+        duration = float(output)
+        return duration
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error running ffprobe: {e}")
+        logger.error(f"ffprobe stderr: {e.stderr}")
+        raise
+    except ValueError as e:
+        logger.error(f"Error parsing ffprobe output: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in get_audio_duration: {e}")
+        raise
 
 def calculate_total_duration(main_audio_path, image_inputs, start_margin, end_margin):
     """Calculate the total duration of the output video."""
