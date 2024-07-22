@@ -109,14 +109,14 @@ def main():
     # Infer "generate" audio if text is provided
     if args.text and not args.audio:
         args.audio = "generate"
-
-    # Infer autofill if both --audio and --image are provided
-    if args.audio and args.image and not args.showprompts:
-        args.autofill = True
     
     # Infer "generate" image if image description is provided but no image is provided
     if args.image_description is not None and not args.image:
         args.image = "generate"
+
+    # Infer autofill if both --audio and --image are provided
+    if args.audio and args.image and not args.showprompts:
+        args.autofill = True
 
     # Check for mutually exclusive autofill and showprompts
     if args.autofill and args.showprompts:
