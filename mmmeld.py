@@ -106,6 +106,18 @@ def main():
     setup_logging()
     set_api_keys(args)
 
+    # Infer autofill if both --audio and --image are provided
+    if args.audio and args.image and not args.showprompts:
+        args.autofill = True
+    
+    if args.image_description is not None and not args.image:
+        args.image = "generate"
+
+    # Check for mutually exclusive autofill and showprompts
+    if args.autofill and args.showprompts:
+        print("Error: --autofill and --showprompts are mutually exclusive.")
+        sys.exit(1)
+
     start_margin, end_margin = map(float, args.audiomargin.split(','))
 
     title = ""
@@ -195,8 +207,8 @@ def main():
             print("Video creation failed.")
             sys.exit(1)
 
-        # Cleanup temporary files if requested
-        if args.cleanup:
+        # Cleanup temporary files if not explicitly disabled
+        if not args.nocleanup:
             print("Cleaning up temporary files...")
             cleanup_files(files_to_cleanup)
             if TEMP_ASSETS_FOLDER.exists():

@@ -45,19 +45,25 @@ Examples:
         """
     )
     
-    parser.add_argument("--audio", help="Path to audio file, YouTube URL, or 'generate' for text-to-speech.")
-    parser.add_argument("--text", help="Text for speech generation (used if audio is 'generate').")
-    parser.add_argument("--voice-id", default=ELEVENLABS_VOICE_ID, help=f"ElevenLabs voice ID. Default: {ELEVENLABS_VOICE_ID}")
-    parser.add_argument("--tts-provider", choices=["elevenlabs", "openai", "deepgram"], default="elevenlabs", help="Text-to-speech provider (default: elevenlabs)")
+    parser.add_argument("--audio", "-a", help="Path to audio file, YouTube URL, or 'generate' for text-to-speech.")
+    parser.add_argument("--text", "-t", help="Text for speech generation (used if audio is 'generate').")
+    parser.add_argument("--voice-id", "-vid", default=ELEVENLABS_VOICE_ID, help=f"ElevenLabs voice ID. Default: {ELEVENLABS_VOICE_ID}")
+    parser.add_argument("--tts-provider", "-tts", choices=["elevenlabs", "openai", "deepgram"], default="elevenlabs", help="Text-to-speech provider (default: elevenlabs)")
     
-    parser.add_argument("--image", help="Path to image/video file(s), URL(s), or 'generate'. Use comma-separated list for multiple inputs.")
-    parser.add_argument("--image_description", help="Description for image generation (used if image is 'generate').")
+    parser.add_argument("--image", "-i", "--video", "-v", help="Path to image/video file(s), URL(s), or 'generate'. Use comma-separated list for multiple inputs.")
+    parser.add_argument("--image_description", "--image-description", "--img-desc", "-id",
+                        dest="image_description",
+                        help="Description for image generation (used if image is not provided, or is 'generate').")    
+    parser.add_argument("--bg-music", "-bm", help="Path to background music file or YouTube URL.")
+    parser.add_argument("--bg-music-volume", "-bmv", type=float, default=DEFAULT_BG_MUSIC_VOLUME, help=f"Volume of background music (0.0 to 1.0). Default: {DEFAULT_BG_MUSIC_VOLUME}")
     
-    parser.add_argument("--bg-music", help="Path to background music file or YouTube URL.")
-    parser.add_argument("--bg-music-volume", type=float, default=DEFAULT_BG_MUSIC_VOLUME, help=f"Volume of background music (0.0 to 1.0). Default: {DEFAULT_BG_MUSIC_VOLUME}")
+    cleanup_group = parser.add_mutually_exclusive_group()
+    cleanup_group.add_argument("--nocleanup", "-nc", action="store_true", help="Do not clean up temporary files after video generation.")
+    cleanup_group.add_argument("--cleanup", "-c", action="store_true", help="Clean up temporary files after video generation (default behavior).")
     
-    parser.add_argument("--cleanup", action="store_true", help="Clean up temporary files after video generation.")
-    parser.add_argument("--autofill", action="store_true", help="Use defaults for all unspecified options, no prompts.")
+    autofill_group = parser.add_mutually_exclusive_group()
+    autofill_group.add_argument("--autofill", "-af", action="store_true", help="Use defaults for all unspecified options, no prompts.")
+    autofill_group.add_argument("--showprompts", "-sp", action="store_true", help="Show all prompts, even if --audio and --image are provided.")    
     
     # Add argument group for API keys
     api_group = parser.add_argument_group('API Keys')
@@ -65,10 +71,9 @@ Examples:
     api_group.add_argument("--elevenlabs-key", help="ElevenLabs API key. Default: Use ELEVENLABS_API_KEY environment variable.")
     api_group.add_argument("--deepgram-key", help="DeepGram API key. Default: Use DEEPGRAM_API_KEY environment variable.")
     
-    parser.add_argument("--output", help="Path for the output video file. Default is based on audio filename.")
-    parser.add_argument("--audiomargin", default="0.5,2.0", help="Start and end audio margins in seconds, comma-separated. Default: 0.5,2.0")
+    parser.add_argument("--output", "-o", help="Path for the output video file. Default is based on audio filename.")
+    parser.add_argument("--audiomargin", "-am", default="0.5,2.0", help="Start and end audio margins in seconds, comma-separated. Default: 0.5,2.0")
     
     if len(sys.argv) == 1:
         return parser.parse_args([])  # Return empty Namespace if no args provided
     return parser.parse_args()
-

@@ -72,47 +72,71 @@ mmmeld --help
 This will display the following help information:
 
 ```
-usage: mmmeld [-h]
-              [--audio AUDIO]
-              [--text TEXT]
-              [--image IMAGE]
-              [--image_description IMAGE_DESCRIPTION]
-              [--bg-music BG_MUSIC]
-              [--bg-music-volume BG_MUSIC_VOLUME]
-              [--output OUTPUT]
-              [--cleanup]
-              [--autofill]
-              [--voice-id VOICE_ID]
-              [--tts-provider {elevenlabs,openai,deepgram}]
-              [--openai-key OPENAI_KEY]
-              [--elevenlabs-key ELEVENLABS_KEY]
-              [--deepgram-key DEEPGRAM_KEY]
-              [--audiomargin AUDIOMARGIN]
+usage: mmmeld.py [-h] [--audio AUDIO] [--text TEXT] [--voice-id VOICE_ID]
+                 [--tts-provider {elevenlabs,openai,deepgram}] [--image IMAGE]
+                 [--image_description IMAGE_DESCRIPTION] [--bg-music BG_MUSIC]
+                 [--bg-music-volume BG_MUSIC_VOLUME] [--nocleanup | --cleanup]
+                 [--autofill | --showprompts] [--openai-key OPENAI_KEY]
+                 [--elevenlabs-key ELEVENLABS_KEY] [--deepgram-key DEEPGRAM_KEY]
+                 [--output OUTPUT] [--audiomargin AUDIOMARGIN]
+
+Generate a video from audio and image/video, with options for text-to-speech, image generation, and background music.
 
 options:
   -h, --help            show this help message and exit
-  --audio AUDIO         Path to audio file, YouTube URL, or 'generate' for text-to-speech.
-  --text TEXT           Text for speech generation (used if audio is 'generate').
-  --image IMAGE         Path to image/video file(s), URL(s), or 'generate'. Use comma-separated list for multiple inputs.
-  --image_description IMAGE_DESCRIPTION
-                        Description for image generation (used if image is 'generate').
-  --bg-music BG_MUSIC   Path to background music file or YouTube URL.
-  --bg-music-volume BG_MUSIC_VOLUME
-                        Volume of background music (0.0 to 1.0). Default: 0.2
-  --output OUTPUT       Path for the output video file. Default is based on audio filename.
-  --cleanup             Clean up temporary files after video generation.
-  --autofill            Use defaults for all unspecified options, no prompts.
-  --voice-id VOICE_ID   ElevenLabs voice ID. Default: WWr4C8ld745zI3BiA8n7
-  --tts-provider {elevenlabs,openai,deepgram}
+  --audio AUDIO, -a AUDIO
+                        Path to audio file, YouTube URL, or 'generate' for text-to-speech.
+  --text TEXT, -t TEXT  Text for speech generation (used if audio is 'generate').
+  --voice-id VOICE_ID, -vid VOICE_ID
+                        ElevenLabs voice ID. Default: WWr4C8ld745zI3BiA8n7
+  --tts-provider {elevenlabs,openai,deepgram}, -tts {elevenlabs,openai,deepgram}
                         Text-to-speech provider (default: elevenlabs)
+  --image IMAGE, -i IMAGE
+                        Path to image/video file(s), URL(s), or 'generate'. Use comma-
+                        separated list for multiple inputs.
+  --image_description IMAGE_DESCRIPTION, --image-description IMAGE_DESCRIPTION, --img-desc IMAGE_DESCRIPTION, -id IMAGE_DESCRIPTION
+                        Description for image generation (used if image is 'generate').     
+  --bg-music BG_MUSIC, -bm BG_MUSIC
+                        Path to background music file or YouTube URL.
+  --bg-music-volume BG_MUSIC_VOLUME, -bmv BG_MUSIC_VOLUME
+                        Volume of background music (0.0 to 1.0). Default: 0.2
+  --nocleanup, -nc      Do not clean up temporary files after video generation.
+  --cleanup, -c         Clean up temporary files after video generation (default
+                        behavior).
+  --autofill, -af       Use defaults for all unspecified options, no prompts.
+  --showprompts, -sp    Show all prompts, even if --audio and --image are provided.
+  --output OUTPUT, -o OUTPUT
+                        Path for the output video file. Default is based on audio
+                        filename.
+  --audiomargin AUDIOMARGIN, -am AUDIOMARGIN
+                        Start and end audio margins in seconds, comma-separated. Default:   
+                        0.5,2.0
+
+API Keys:
   --openai-key OPENAI_KEY
-                        OpenAI API key. Default: Use OPENAI_API_KEY environment variable.
+                        OpenAI API key. Default: Use OPENAI_API_KEY environment variable.   
   --elevenlabs-key ELEVENLABS_KEY
-                        ElevenLabs API key. Default: Use ELEVENLABS_API_KEY environment variable.
+                        ElevenLabs API key. Default: Use ELEVENLABS_API_KEY environment     
+                        variable.
   --deepgram-key DEEPGRAM_KEY
-                        DeepGram API key. Default: Use DEEPGRAM_API_KEY environment variable.
-  --audiomargin AUDIOMARGIN
-                        Start and end audio margins in seconds, comma-separated. Default: 0.5,2.0
+                        DeepGram API key. Default: Use DEEPGRAM_API_KEY environment
+                        variable.
+
+Examples:
+  Generate video from local audio and multiple image/video files:
+    python mmmeld.py --audio path/to/audio.mp3 --image path/to/image1.png,path/to/video1.mp4,path/to/image2.jpg
+
+  Generate video with text-to-speech, generated image, additional images/videos, and background music:
+    python mmmeld.py --audio generate --text "Hello, world!" --image generate,path/to/video1.mp4,https://example.com/image.jpg --bg-music path/to/music.mp3
+
+  Download YouTube audio, use multiple images/videos, and add background music from YouTube:
+    python mmmeld.py --audio https://www.youtube.com/watch?v=dQw4w9WgXcQ --image path/to/image1.png,https://example.com/video.mp4 --bg-music https://www.youtube.com/watch?v=background_music_id
+
+  Generate video with specific ElevenLabs voice ID:
+    python mmmeld.py --audio generate --text "Hello, world!" --voice-id your_voice_id_here  
+
+  Run interactively (no arguments):
+    python mmmeld.py
 ```
 
 ### New Feature: Optional Audio Input
