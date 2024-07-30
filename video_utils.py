@@ -302,6 +302,12 @@ def generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_musi
     # Calculate the maximum dimensions of all inputs
     max_width, max_height = calculate_max_dimensions(image_inputs)
     
+    # Convert .m4a to .wav if necessary
+    if audio_path and audio_path.lower().endswith('.m4a'):
+        wav_audio_path = os.path.join(temp_folder, "converted_audio.wav")
+        convert_m4a_to_wav(audio_path, wav_audio_path)
+        audio_path = wav_audio_path
+
     total_duration = calculate_total_duration(audio_path, image_inputs, start_margin, end_margin)
     visual_sequence, audio_sequence = create_visual_sequence(image_inputs, total_duration, temp_folder, bool(audio_path), max_width, max_height)
     fade_duration = 0
@@ -356,6 +362,16 @@ def generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_musi
     os.remove(visual_sequence)
     os.remove(audio_sequence)
     return True
+
+def convert_m4a_to_wav(input_path, output_path):
+    """Convert .m4a file to .wav format."""
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-acodec", "pcm_s16le",
+        output_path
+    ]
+    logger.info(f"Converting .m4a to .wav: {' '.join(cmd)}")
+    run_ffmpeg_command(cmd)
 
 def is_image(file_path):
     """Check if the file is an image."""
