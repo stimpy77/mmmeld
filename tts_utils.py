@@ -6,6 +6,7 @@ from openai import OpenAI
 from deepgram import Deepgram
 import asyncio
 from pydub import AudioSegment
+import mimetypes
 
 from config import (
     TEMP_ASSETS_FOLDER,
@@ -106,13 +107,29 @@ def generate_speech(text, voice_id=None, autofill=False, tts_provider='elevenlab
     else:
         return audio_files[0], main_title, text
 
+def get_file_type(file_path):
+    mime_type, _ = mimetypes.guess_type(file_path)
+    if mime_type:
+        return mime_type.split('/')[-1]
+    return None
+
 def concatenate_audio_files(audio_files, output_path):
     combined = AudioSegment.empty()
     for audio_file in audio_files:
-        segment = AudioSegment.from_wav(audio_file)
+        file_type = get_file_type(audio_file)
+        print(f"Detected file type for {audio_file}: {file_type}")
+        
+        if file_type == 'wav':
+            segment = AudioSegment.from_wav(audio_file)
+        elif file_type == 'mp3':
+            segment = AudioSegment.from_mp3(audio_file)
+        else:
+            print(f"Error: Unsupported file type {file_type} for {audio_file}")
+            continue
+        
         combined += segment
     
-    combined.export(output_path, format="wav")
+    combined.export(output_path, format="mp3")
 
 def generate_speech_with_elevenlabs(text, voice_id):
     ensure_temp_folder()
