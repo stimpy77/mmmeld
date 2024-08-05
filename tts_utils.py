@@ -5,6 +5,7 @@ import requests
 from openai import OpenAI
 from deepgram import Deepgram
 import asyncio
+from pydub import AudioSegment
 
 from config import (
     TEMP_ASSETS_FOLDER,
@@ -104,6 +105,14 @@ def generate_speech(text, voice_id=None, autofill=False, tts_provider='elevenlab
         return output_path, main_title, text
     else:
         return audio_files[0], main_title, text
+
+def concatenate_audio_files(audio_files, output_path):
+    combined = AudioSegment.empty()
+    for audio_file in audio_files:
+        segment = AudioSegment.from_wav(audio_file)
+        combined += segment
+    
+    combined.export(output_path, format="wav")
 
 def generate_speech_with_elevenlabs(text, voice_id):
     ensure_temp_folder()

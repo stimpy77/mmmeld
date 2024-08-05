@@ -134,6 +134,23 @@ def main():
         # Ensure temp folder exists
         TEMP_ASSETS_FOLDER.mkdir(exist_ok=True)
 
+        # Handle text input from both --text and --text-file
+        text_input = ""
+        if args.text:
+            text_input += args.text + "\n"
+        if args.text_file:
+            try:
+                with open(args.text_file, 'r') as file:
+                    text_input += file.read()
+            except IOError as e:
+                print(f"Error reading text file: {e}")
+                sys.exit(1)
+
+        # Update audio generation logic
+        if text_input or args.audio == "generate":
+            args.audio = "generate"
+            args.text = text_input.strip()
+
         # Handle audio source
         if args.text:
             args.audio = 'generate'  # Force audio generation when text is provided

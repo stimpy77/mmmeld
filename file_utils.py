@@ -55,6 +55,9 @@ def get_default_output_path(audio_path, title, image_inputs=None):
     else:
         base_name = "output"
 
+    # Remove "Title_" or "Title " prefix
+    base_name = re.sub(r'^[Tt]itle[_ ]', '', base_name)
+
     base_name = sanitize_filename(base_name)
     output_path = f"{base_name}.mp4"
     counter = 1

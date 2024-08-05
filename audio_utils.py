@@ -40,7 +40,7 @@ def get_audio_source(args, files_to_cleanup):
 
     if args.audio:
         if args.audio == "generate":
-            text = args.text or get_multiline_input("Enter the text to generate audio from (press Enter to skip): ")
+            text = args.text or get_text_input()
             if not text:
                 print("No text provided. Skipping audio generation.")
                 return audio_path, title, description, files_to_cleanup
@@ -54,7 +54,7 @@ def get_audio_source(args, files_to_cleanup):
     else:
         audio_path = input("Enter the path to the audio file (or press Enter to generate from text): ")
         if not audio_path:
-            text = get_multiline_input("Enter the text to generate audio from (press Enter to skip): ")
+            text = get_text_input()
             if text:
                 audio_path, title, description = generate_speech(text, args.voice_id, args.tts_provider, files_to_cleanup)
             else:
@@ -65,6 +65,19 @@ def get_audio_source(args, files_to_cleanup):
             description = ""
 
     return audio_path, title, description, files_to_cleanup
+
+def get_text_input():
+    while True:
+        file_path = input("Enter the path to a text file, or press Enter to input text directly: ")
+        if not file_path:
+            return get_multiline_input("Enter the text to generate audio from (press Enter twice to finish): ")
+        
+        try:
+            with open(file_path, 'r') as file:
+                return file.read()
+        except IOError as e:
+            print(f"Error reading text file: {e}")
+            print("Please try again or press Enter to input text directly.")
 
 def get_background_music(args, files_to_cleanup):
     bg_music_path = ""
