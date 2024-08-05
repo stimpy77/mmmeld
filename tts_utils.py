@@ -7,6 +7,7 @@ from deepgram import Deepgram
 import asyncio
 from pydub import AudioSegment
 import mimetypes
+import wave
 
 from config import (
     TEMP_ASSETS_FOLDER,
@@ -57,7 +58,7 @@ def split_text_into_chunks(text, max_chunk_size=MAX_CHUNK_SIZE):
     return chunks
 
 def generate_speech(text, voice_id=None, autofill=False, tts_provider='elevenlabs', files_to_cleanup=None):
-    print(f"Generating speech for text:\n{text}\n")
+    # print(f"Generating speech using {tts_provider} provider")
     
     # Handle voice ID selection before chunking
     if not voice_id and not autofill:
@@ -88,13 +89,15 @@ def generate_speech(text, voice_id=None, autofill=False, tts_provider='elevenlab
         files_to_cleanup = []
 
     for i, chunk in enumerate(chunks):
-        print(f"Generating speech for chunk {i + 1}/{len(chunks)} with {tts_provider}")
+        print(f"Generating speech for chunk {i + 1}/{len(chunks)} with {tts_provider} ({voice_id})")
         if tts_provider == 'elevenlabs':
             audio_filename, title, _ = generate_speech_with_elevenlabs(chunk, voice_id)
         elif tts_provider == 'openai':
             audio_filename = generate_openai_speech(chunk, voice_id)
+            title = generate_title_from_text(chunk)  # Generate a title for OpenAI TTS
         elif tts_provider == 'deepgram':
-            audio_filename = generate_deepgram_speech(chunk, voice_id)
+            audio_filename = generate_deepgram_speech_sync(chunk, voice_id)
+            title = generate_title_from_text(chunk)  # Generate a title for Deepgram TTS
         audio_files.append(audio_filename)
         if not main_title:
             main_title = title
@@ -108,28 +111,38 @@ def generate_speech(text, voice_id=None, autofill=False, tts_provider='elevenlab
         return audio_files[0], main_title, text
 
 def get_file_type(file_path):
-    mime_type, _ = mimetypes.guess_type(file_path)
-    if mime_type:
-        return mime_type.split('/')[-1]
-    return None
+    _, extension = os.path.splitext(file_path)
+    return extension.lower()[1:]  # Remove the dot and convert to lowercase
 
 def concatenate_audio_files(audio_files, output_path):
     combined = AudioSegment.empty()
     for audio_file in audio_files:
         file_type = get_file_type(audio_file)
-        print(f"Detected file type for {audio_file}: {file_type}")
+        print(f"Processing file: {audio_file} (type: {file_type})")
         
-        if file_type == 'wav':
-            segment = AudioSegment.from_wav(audio_file)
-        elif file_type == 'mp3':
-            segment = AudioSegment.from_mp3(audio_file)
-        else:
-            print(f"Error: Unsupported file type {file_type} for {audio_file}")
-            continue
+        try:
+            if file_type == 'wav':
+                segment = AudioSegment.from_wav(audio_file)
+            elif file_type == 'mp3':
+                segment = AudioSegment.from_mp3(audio_file)
+            else:
+                print(f"Unsupported file type: {file_type}")
+                continue
+        except wave.Error:
+            print(f"Error reading {audio_file} as WAV. Attempting to read as raw audio...")
+            with open(audio_file, 'rb') as f:
+                raw_data = f.read()
+            segment = AudioSegment(
+                data=raw_data,
+                sample_width=2,  # Assuming 16-bit audio
+                frame_rate=44100,  # Assuming 44.1 kHz sample rate
+                channels=1  # Assuming mono audio
+            )
         
         combined += segment
     
     combined.export(output_path, format="mp3")
+    print(f"Concatenated audio saved to: {output_path}")
 
 def generate_speech_with_elevenlabs(text, voice_id):
     ensure_temp_folder()
@@ -169,6 +182,8 @@ def generate_speech_with_elevenlabs(text, voice_id):
         raise Exception("Failed to generate speech with ElevenLabs.")
 
 def generate_openai_speech(text, voice_id=None):
+    ensure_temp_folder()
+    print("Generating speech with OpenAI...")
     client = OpenAI()
     voice_id = voice_id or OPENAI_VOICE_ID
     response = client.audio.speech.create(
@@ -176,7 +191,8 @@ def generate_openai_speech(text, voice_id=None):
         voice=voice_id,
         input=text
     )
-    output_path = os.path.join(TEMP_ASSETS_FOLDER, "generated_speech.mp3")
+    title = generate_title_from_text(text)
+    output_path = os.path.join(TEMP_ASSETS_FOLDER, f"{title}.mp3")
     response.stream_to_file(output_path)
     return output_path
 

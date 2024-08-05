@@ -47,7 +47,7 @@ Examples:
     
     parser.add_argument("--audio", "-a", help="Path to audio file, YouTube URL, or 'generate' for text-to-speech.")
     parser.add_argument("--text", "-t", help="Text for speech generation (used if audio is 'generate').")
-    parser.add_argument("--voice-id", "-vid", default=ELEVENLABS_VOICE_ID, help=f"ElevenLabs voice ID. Default: {ELEVENLABS_VOICE_ID}")
+    parser.add_argument("--voice-id", "-vid", help=f"ElevenLabs voice ID. Default: {ELEVENLABS_VOICE_ID}")
     parser.add_argument("--tts-provider", "-tts", choices=["elevenlabs", "openai", "deepgram"], default="elevenlabs", help="Text-to-speech provider (default: elevenlabs)")
     
     parser.add_argument("--image", "-i", "--video", "-v", help="Path to image/video file(s), URL(s), or 'generate'. Use comma-separated list for multiple inputs.")

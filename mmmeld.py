@@ -106,6 +106,12 @@ def main():
     setup_logging()
     set_api_keys(args)
 
+    # Ensure tts_provider is a string, not a list
+    if isinstance(args.tts_provider, list):
+        args.tts_provider = args.tts_provider[0] if args.tts_provider else 'elevenlabs'
+
+    print(f"Using TTS provider: {args.tts_provider}")  # Debug print
+
     # Infer "generate" audio if text is provided
     if args.text and not args.audio:
         args.audio = "generate"
@@ -140,7 +146,7 @@ def main():
             text_input += args.text + "\n"
         if args.text_file:
             try:
-                with open(args.text_file, 'r') as file:
+                with open(args.text_file, 'r', encoding='utf-8') as file:
                     text_input += file.read()
             except IOError as e:
                 print(f"Error reading text file: {e}")
@@ -158,7 +164,7 @@ def main():
             # Convert relative audio path to absolute path
             if args.audio and not args.audio.lower() == 'generate':
                 args.audio = os.path.abspath(args.audio)
-            audio_path, title, description, files_to_cleanup = get_audio_source(args, files_to_cleanup)
+            audio_path, title, description, files_to_cleanup = get_audio_source(args, files_to_cleanup, args.tts_provider)
         elif not args.autofill:
             audio_input = get_valid_input(
                 "Enter the path to the audio file, YouTube URL, 'generate' for text-to-speech, or press Enter to skip: ",

@@ -30,27 +30,20 @@ def download_youtube_audio(url, files_to_cleanup):
     files_to_cleanup.append(output_path)
     return output_path, info.get('title', 'Unknown Title'), info.get('description', '')
 
-def get_audio_source(args, files_to_cleanup):
-    audio_path = ""
-    title = ""
-    description = ""
-
-    if files_to_cleanup is None:
-        files_to_cleanup = []
-
-    if args.audio:
-        if args.audio == "generate":
-            text = args.text or get_text_input()
-            if not text:
-                print("No text provided. Skipping audio generation.")
-                return audio_path, title, description, files_to_cleanup
-            audio_path, title, description = generate_speech(text, args.voice_id, args.tts_provider, files_to_cleanup)
-        elif is_youtube_url(args.audio):
-            audio_path, title, description = download_youtube_audio(args.audio, files_to_cleanup)
-        else:
-            audio_path = args.audio
-            title = os.path.splitext(os.path.basename(audio_path))[0]
-            description = ""
+def get_audio_source(args, files_to_cleanup, tts_provider='elevenlabs'):
+    print(f"Getting audio source with TTS provider: {tts_provider}")  # Debug print
+    if args.audio == 'generate':
+        # print(f"Generating speech using {tts_provider} provider")
+        audio_path, title, description = generate_speech(args.text, args.voice_id, args.autofill, tts_provider, files_to_cleanup)
+        files_to_cleanup.append(audio_path)
+    elif os.path.isfile(args.audio):
+        audio_path = args.audio
+        title = os.path.splitext(os.path.basename(audio_path))[0]
+        description = ""
+    elif "youtube.com" in args.audio or "youtu.be" in args.audio:
+        print("Downloading audio from YouTube...")
+        audio_path, title, description = download_youtube_audio(args.audio)
+        files_to_cleanup.append(audio_path)
     else:
         audio_path = input("Enter the path to the audio file (or press Enter to generate from text): ")
         if not audio_path:
