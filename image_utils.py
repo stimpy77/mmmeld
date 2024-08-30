@@ -19,7 +19,7 @@ def get_image_inputs(args, title, description, files_to_cleanup):
                 if input_path.lower() == "generate":
                     image_description = args.image_description or description or f"A visual representation of audio titled '{title}'"
                     logging.info(f"Generating image with description: {image_description}")
-                    generated_image_path = generate_image(image_description, title)
+                    generated_image_path = generate_image(image_description, title, args.image_dimensions)
                     image_inputs.append(generated_image_path)
                     files_to_cleanup.append(generated_image_path)
                 elif "youtube.com" in input_path or "youtu.be" in input_path:
@@ -41,7 +41,7 @@ def get_image_inputs(args, title, description, files_to_cleanup):
         logging.info("Autofill enabled, generating default image")
         image_description = f"A visual representation of audio titled '{title}'"
         logging.info(f"Generating image with description: {image_description}")
-        generated_image_path = generate_image(image_description, title)
+        generated_image_path = generate_image(image_description, title, args.image_dimensions)
         image_inputs = [generated_image_path]
         files_to_cleanup.append(generated_image_path)
     else:
@@ -58,7 +58,7 @@ def get_image_inputs(args, title, description, files_to_cleanup):
                     if not image_description:
                         image_description = f"A visual representation of audio titled '{title}'"
                     logging.info(f"Generating image with description: {image_description}")
-                    generated_image_path = generate_image(image_description, title)
+                    generated_image_path = generate_image(image_description, title, args.image_dimensions)
                     image_inputs.append(generated_image_path)
                     files_to_cleanup.append(generated_image_path)
                 elif "youtube.com" in input_path or "youtu.be" in input_path:
@@ -103,8 +103,34 @@ def generate_image_prompt(description, is_retry=False):
     )
     return response.choices[0].message.content
 
-def generate_image(prompt, title, max_retries=3):
+def generate_image(prompt, title, image_dimensions=None, max_retries=3):
     client = OpenAI(api_key=os.environ.get("OPENAI_PERSONAL_API_KEY") or os.environ.get("OPENAI_API_KEY"))
+    
+    # Map user input to DALL-E compatible options
+    size_mapping = {
+        "square": "1024x1024",
+        "portrait": "1024x1792",
+        "landscape": "1792x1024"
+    }
+    
+    # Default to square if not specified
+    size = "1024x1024"
+    
+    if image_dimensions:
+        if image_dimensions.lower() in size_mapping:
+            size = size_mapping[image_dimensions.lower()]
+        elif "x" in image_dimensions:
+            width, height = map(int, image_dimensions.split("x"))
+            # Choose the closest DALL-E option based on aspect ratio
+            aspect_ratio = width / height
+            if aspect_ratio > 1.5:
+                size = "1792x1024"
+            elif aspect_ratio < 0.75:
+                size = "1024x1792"
+            else:
+                size = "1024x1024"
+        else:
+            logger.warning(f"Invalid image dimensions: {image_dimensions}. Using default 1024x1024.")
     
     for attempt in range(max_retries):
         try:
@@ -113,7 +139,7 @@ def generate_image(prompt, title, max_retries=3):
                 model="dall-e-3",
                 n=1,
                 quality="hd",
-                size="1024x1024"
+                size=size
             )
             
             image_url = response.data[0].url

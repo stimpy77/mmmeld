@@ -319,7 +319,7 @@ def generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_musi
     
     if audio_path:
         inputs.extend(["-i", audio_path])
-        filter_complex.append(f"[2:a]adelay={int(start_margin*1000)}|{int(start_margin*1000)},apad=pad_dur={end_margin}[main_audio];")
+        filter_complex.append(f"[2:a]adelay={int(start_margin*1000)}|{int(start_margin*1000)},apad=pad_dur={end_margin},loudnorm=I=-16:TP=-1.5:LRA=11[main_audio];")
         filter_complex.append(f"[0:v]loop=-1:size={int(total_duration*30)}:start=0,setpts=N/FRAME_RATE/TB[looped_video];")
         filter_complex.append(f"[looped_video]trim=duration={total_duration},setpts=PTS-STARTPTS[trimmed_video];")
     else:

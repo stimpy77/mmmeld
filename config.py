@@ -74,6 +74,8 @@ Examples:
     parser.add_argument("--output", "-o", help="Path for the output video file. Default is based on audio filename.")
     parser.add_argument("--audiomargin", "-am", default="0.5,2.0", help="Start and end audio margins in seconds, comma-separated. Default: 0.5,2.0")
     parser.add_argument("--text-file", "-tf", help="Path to a text file for speech generation.")
+    parser.add_argument("--image-dimensions", "--image-dims", "-d", 
+                        help="Dimensions for generated images. Use 'square', 'portrait', or 'landscape', or pixel dimensions like '1024x1024'.")
     
     if len(sys.argv) == 1:
         return parser.parse_args([])  # Return empty Namespace if no args provided

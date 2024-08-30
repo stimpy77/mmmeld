@@ -8,6 +8,7 @@ import asyncio
 from pydub import AudioSegment
 import mimetypes
 import wave
+import struct
 
 from config import (
     TEMP_ASSETS_FOLDER,
@@ -104,8 +105,8 @@ def generate_speech(text, voice_id=None, autofill=False, tts_provider='elevenlab
         files_to_cleanup.append(audio_filename)
     
     if len(audio_files) > 1:
-        output_path = os.path.join(TEMP_ASSETS_FOLDER, f"{main_title}.mp3")
-        concatenate_audio_files(audio_files, output_path)
+        output_path = os.path.join(TEMP_ASSETS_FOLDER, f"{main_title}")
+        output_path = concatenate_audio_files(audio_files, output_path)
         return output_path, main_title, text
     else:
         return audio_files[0], main_title, text
@@ -114,35 +115,40 @@ def get_file_type(file_path):
     _, extension = os.path.splitext(file_path)
     return extension.lower()[1:]  # Remove the dot and convert to lowercase
 
-def concatenate_audio_files(audio_files, output_path):
-    combined = AudioSegment.empty()
-    for audio_file in audio_files:
-        file_type = get_file_type(audio_file)
-        print(f"Processing file: {audio_file} (type: {file_type})")
-        
-        try:
-            if file_type == 'wav':
-                segment = AudioSegment.from_wav(audio_file)
-            elif file_type == 'mp3':
-                segment = AudioSegment.from_mp3(audio_file)
-            else:
-                print(f"Unsupported file type: {file_type}")
-                continue
-        except wave.Error:
-            print(f"Error reading {audio_file} as WAV. Attempting to read as raw audio...")
-            with open(audio_file, 'rb') as f:
-                raw_data = f.read()
-            segment = AudioSegment(
-                data=raw_data,
-                sample_width=2,  # Assuming 16-bit audio
-                frame_rate=44100,  # Assuming 44.1 kHz sample rate
-                channels=1  # Assuming mono audio
-            )
-        
-        combined += segment
+def is_valid_audio_file(file_path):
+    try:
+        AudioSegment.from_file(file_path)
+        return True
+    except Exception:
+        return False
+
+def fix_wav_header(file_path):
+    with open(file_path, 'rb') as f:
+        data = f.read()
     
-    combined.export(output_path, format="mp3")
-    print(f"Concatenated audio saved to: {output_path}")
+    # Check if the file starts with 'RIFF'
+    if data[:4] != b'RIFF':
+        # Add RIFF header
+        riff_chunk_size = len(data) - 8
+        header = struct.pack('<4sI4s', b'RIFF', riff_chunk_size, b'WAVE')
+        data = header + data
+
+    # Check for 'fmt ' chunk
+    if b'fmt ' not in data[:44]:
+        # Add basic fmt chunk (assuming PCM format, 16-bit, 44100 Hz, mono)
+        fmt_chunk = struct.pack('<4sIHHIIHH', b'fmt ', 16, 1, 1, 44100, 88200, 2, 16)
+        data = data[:12] + fmt_chunk + data[12:]
+
+    # Check for 'data' chunk
+    if b'data' not in data:
+        # Add data chunk header
+        data_chunk_size = len(data) - 44
+        data_header = struct.pack('<4sI', b'data', data_chunk_size)
+        data = data[:44] + data_header + data[44:]
+
+    # Write the fixed data back to the file
+    with open(file_path, 'wb') as f:
+        f.write(data)
 
 def generate_speech_with_elevenlabs(text, voice_id):
     ensure_temp_folder()
@@ -155,7 +161,7 @@ def generate_speech_with_elevenlabs(text, voice_id):
 
     tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
     headers = {
-        "Accept": "application/json",
+        "Accept": "audio/wav",  # Explicitly request WAV format
         "xi-api-key": api_key
     }
     data = {
@@ -170,16 +176,40 @@ def generate_speech_with_elevenlabs(text, voice_id):
     }
     response = requests.post(tts_url, headers=headers, json=data, stream=True)
     if response.ok:
+        content_type = response.headers.get('Content-Type', '')
+        print(f"Received content type: {content_type}")  # Debug print
+        
         title = generate_title_from_text(text)
-        audio_filename = os.path.join(TEMP_ASSETS_FOLDER, f"{title}.wav")
+        audio_filename = os.path.join(TEMP_ASSETS_FOLDER, f"{title}.wav")  # Always use .wav extension
+        
         with open(audio_filename, "wb") as f:
             for chunk in response.iter_content(chunk_size=1024):
                 f.write(chunk)
         print(f"Audio generated: {audio_filename}")
+        
+        if not is_valid_audio_file(audio_filename):
+            print(f"Fixing invalid audio file: {audio_filename}")
+            fix_wav_header(audio_filename)
+        
         return audio_filename, title, text
     else:
         print(response.text)
         raise Exception("Failed to generate speech with ElevenLabs.")
+
+def get_file_extension(content_type):
+    content_type = content_type.lower()
+    if 'wav' in content_type:
+        return 'wav'
+    elif 'flac' in content_type:
+        return 'flac'
+    elif 'aac' in content_type:
+        return 'aac'
+    elif 'ogg' in content_type:
+        return 'ogg'
+    elif 'mpeg' in content_type:
+        return 'mp3'
+    else:
+        return 'wav'  # Default to WAV if content type is not recognized
 
 def generate_openai_speech(text, voice_id=None):
     ensure_temp_folder()
@@ -187,7 +217,7 @@ def generate_openai_speech(text, voice_id=None):
     client = OpenAI()
     voice_id = voice_id or OPENAI_VOICE_ID
     response = client.audio.speech.create(
-        model="tts-1",
+        model="tts-1-hd",
         voice=voice_id,
         input=text
     )
@@ -224,3 +254,38 @@ def generate_title_from_text(text, max_length=50):
     title = re.sub(r'\s+', '_', title)
     # Truncate to max_length
     return title[:max_length]
+
+def get_highest_quality_format(audio_files):
+    format_priority = ['wav', 'flac', 'aac', 'ogg', 'mp3']
+    file_formats = [os.path.splitext(file)[1][1:].lower() for file in audio_files]
+    
+    for format in format_priority:
+        if format in file_formats:
+            return format
+    
+    return 'wav'  # Default to WAV if no recognized formats are found
+
+def concatenate_audio_files(audio_files, output_path):
+    combined = AudioSegment.empty()
+    for audio_file in audio_files:
+        print(f"Processing file: {audio_file}")
+        try:
+            if not is_valid_audio_file(audio_file):
+                print(f"Fixing invalid audio file: {audio_file}")
+                if audio_file.lower().endswith('.wav'):
+                    fix_wav_header(audio_file)
+                else:
+                    print(f"Unable to fix non-WAV file: {audio_file}")
+                    continue
+            
+            segment = AudioSegment.from_file(audio_file)
+            combined += segment
+        except Exception as e:
+            print(f"Error processing {audio_file}: {str(e)}")
+            continue
+    
+    output_format = get_highest_quality_format(audio_files)
+    output_path_with_extension = f"{os.path.splitext(output_path)[0]}.{output_format}"
+    combined.export(output_path_with_extension, format=output_format)
+    print(f"Concatenated audio saved to: {output_path_with_extension}")
+    return output_path_with_extension
