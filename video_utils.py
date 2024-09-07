@@ -297,10 +297,25 @@ def calculate_max_dimensions(inputs):
 
     return max_width, max_height
 
-def generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_music_volume, start_margin, end_margin, temp_folder):
+def generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_music_volume, start_margin, end_margin, temp_folder, dimensions=None):
     """Generate the final video with audio and background music."""
-    # Calculate the maximum dimensions of all inputs
-    max_width, max_height = calculate_max_dimensions(image_inputs)
+    # Parse dimensions
+    if dimensions:
+        if dimensions.lower() in ["square", "portrait", "landscape"]:
+            if dimensions.lower() == "square":
+                max_width = max_height = 1024
+            elif dimensions.lower() == "portrait":
+                max_width, max_height = 1024, 1792
+            else:  # landscape
+                max_width, max_height = 1792, 1024
+        elif "x" in dimensions:
+            max_width, max_height = map(int, dimensions.split("x"))
+        else:
+            logger.warning(f"Invalid dimensions: {dimensions}. Using default 1024x1024.")
+            max_width = max_height = 1024
+    else:
+        # If dimensions are not specified, use the maximum dimensions of input files
+        max_width, max_height = calculate_max_dimensions(image_inputs)
     
     # Convert .m4a to .wav if necessary
     if audio_path and audio_path.lower().endswith('.m4a'):

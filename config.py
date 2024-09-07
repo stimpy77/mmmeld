@@ -51,9 +51,9 @@ Examples:
     parser.add_argument("--tts-provider", "-tts", choices=["elevenlabs", "openai", "deepgram"], default="elevenlabs", help="Text-to-speech provider (default: elevenlabs)")
     
     parser.add_argument("--image", "-i", "--video", "-v", help="Path to image/video file(s), URL(s), or 'generate'. Use comma-separated list for multiple inputs.")
-    parser.add_argument("--image_description", "--image-description", "--img-desc", "-id",
-                        dest="image_description",
-                        help="Description for image generation (used if image is not provided, or is 'generate').")    
+    parser.add_argument("--image-description", "-id", help="Description for image generation if --image is 'generate'.")
+    parser.add_argument("--dimensions", "-d", 
+                    help="Dimensions for the output video. Use 'square', 'portrait', 'landscape', or pixel dimensions like '1024x1024'.")
     parser.add_argument("--bg-music", "-bm", help="Path to background music file or YouTube URL.")
     parser.add_argument("--bg-music-volume", "-bmv", type=float, default=DEFAULT_BG_MUSIC_VOLUME, help=f"Volume of background music (0.0 to 1.0). Default: {DEFAULT_BG_MUSIC_VOLUME}")
     
@@ -74,9 +74,7 @@ Examples:
     parser.add_argument("--output", "-o", help="Path for the output video file. Default is based on audio filename.")
     parser.add_argument("--audiomargin", "-am", default="0.5,2.0", help="Start and end audio margins in seconds, comma-separated. Default: 0.5,2.0")
     parser.add_argument("--text-file", "-tf", help="Path to a text file for speech generation.")
-    parser.add_argument("--image-dimensions", "--image-dims", "-d", 
-                        help="Dimensions for generated images. Use 'square', 'portrait', or 'landscape', or pixel dimensions like '1024x1024'.")
-    
+
     if len(sys.argv) == 1:
         return parser.parse_args([])  # Return empty Namespace if no args provided
     return parser.parse_args()

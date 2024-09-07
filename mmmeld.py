@@ -49,7 +49,7 @@ def process_image_input(image_input, image_description=None, files_to_cleanup=[]
             image_description = input("Enter a description for the image to generate (or press Enter to use default): ")
         if not image_description:
             image_description = "A visual representation of audio"
-        generated_image = generate_image(image_description, "generated_image")
+        generated_image = generate_image(image_description, "generated_image", args.dimensions)
         if generated_image:
             files_to_cleanup.append(generated_image)
             return [generated_image]
@@ -63,7 +63,7 @@ def process_image_input(image_input, image_description=None, files_to_cleanup=[]
     
     for input in image_inputs:
         if input.lower() == 'generate':
-            generated_image = generate_image(image_description or "A visual representation of audio", "generated_audio")
+            generated_image = generate_image(image_description or "A visual representation of audio", "generated_audio", args.dimensions)
             if generated_image:
                 files_to_cleanup.append(generated_image)
                 processed_inputs.append(generated_image)
@@ -196,7 +196,7 @@ def main():
 
         if not image_inputs:
             print("No valid image inputs provided. Using a default image.")
-            default_image = generate_image("A default visual representation for audio", title)
+            default_image = generate_image("A default visual representation for audio", title, args.dimensions)
             if default_image:
                 image_inputs = [default_image]
                 files_to_cleanup.append(default_image)
@@ -225,7 +225,10 @@ def main():
             print("Error: You must provide either audio or images/videos.")
             sys.exit(1)
 
-        if generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_music_volume, start_margin, end_margin, TEMP_ASSETS_FOLDER):
+        if args.dimensions:
+            logging.info(f"Using output dimensions: {args.dimensions}")
+
+        if generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_music_volume, start_margin, end_margin, TEMP_ASSETS_FOLDER, args.dimensions):
             print(f"Video created successfully at {output_path}")
             if audio_path:
                 print(f"The length of the video is the main audio length plus {start_margin + end_margin} seconds.")

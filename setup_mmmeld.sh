@@ -1,32 +1,48 @@
 #!/bin/bash
 
 # Get the directory of the current script
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Create the mmmeld script
-cat << EOF > "$SCRIPT_DIR/mmmeld"
+# Create the mmmeld.sh script
+cat << 'EOF' > "$scriptDir/mmmeld.sh"
 #!/bin/bash
-if [ \$# -eq 0 ]; then
-    python "$SCRIPT_DIR/mmmeld.py"
+if [ "$#" -eq 0 ]; then
+    python "$scriptDir/mmmeld.py"
 else
-    python "$SCRIPT_DIR/mmmeld.py" "\$@"
+    python "$scriptDir/mmmeld.py" "$@"
 fi
 EOF
 
-# Make the mmmeld script executable
-chmod +x "$SCRIPT_DIR/mmmeld"
+# Create the tts.sh script
+cat << 'EOF' > "$scriptDir/tts.sh"
+#!/bin/bash
+if [ "$#" -eq 0 ]; then
+    python "$scriptDir/tts.py"
+else
+    python "$scriptDir/tts.py" "$@"
+fi
+EOF
 
-# Create .local/bin if it doesn't exist
-mkdir -p "$HOME/.local/bin"
+# Make the scripts executable
+chmod +x "$scriptDir/mmmeld.sh"
+chmod +x "$scriptDir/tts.sh"
 
-# Move the mmmeld script to .local/bin
-mv "$SCRIPT_DIR/mmmeld" "$HOME/.local/bin/"
+# Create .local and .local/bin if they don't exist
+localPath="$HOME/.local"
+localBinPath="$localPath/bin"
+mkdir -p "$localBinPath"
+
+# Move the mmmeld.sh and tts.sh scripts to .local/bin
+mv "$scriptDir/mmmeld.sh" "$localBinPath/mmmeld"
+mv "$scriptDir/tts.sh" "$localBinPath/tts"
 
 # Add .local/bin to PATH if it's not already there
-if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
-    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.profile"
-    export PATH="$HOME/.local/bin:$PATH"
+if [[ ":$PATH:" != *":$localBinPath:"* ]]; then
+    echo "export PATH=\"$localBinPath:\$PATH\"" >> "$HOME/.bashrc"
+    export PATH="$localBinPath:$PATH"
+    echo ".local/bin has been added to your PATH environment variable."
+else
+    echo ".local/bin is already in your PATH environment variable."
 fi
 
-echo "mmmeld has been deployed. You may need to restart your terminal or run 'source ~/.bashrc' to use it immediately."
+echo "mmmeld and tts have been deployed. You may need to restart your shell session to use them immediately."
