@@ -110,7 +110,9 @@ def main():
     if isinstance(args.tts_provider, list):
         args.tts_provider = args.tts_provider[0] if args.tts_provider else 'elevenlabs'
 
-    print(f"Using TTS provider: {args.tts_provider}")  # Debug print
+    # Only print TTS provider info if audio generation is needed
+    if args.audio == "generate" or args.text:
+        print(f"Using TTS provider: {args.tts_provider}")
 
     # Infer "generate" audio if text is provided
     if args.text and not args.audio:
