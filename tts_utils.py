@@ -58,9 +58,7 @@ def split_text_into_chunks(text, max_chunk_size=MAX_CHUNK_SIZE):
 
     return chunks
 
-def generate_speech(text, voice_id=None, autofill=False, tts_provider='elevenlabs', files_to_cleanup=None):
-    # print(f"Generating speech using {tts_provider} provider")
-    
+def generate_speech(text, voice_id=None, autofill=False, tts_provider='elevenlabs', files_to_cleanup=None, output_filename=None):
     # Handle voice ID selection before chunking
     if not voice_id and not autofill:
         if tts_provider == 'elevenlabs':
@@ -107,9 +105,16 @@ def generate_speech(text, voice_id=None, autofill=False, tts_provider='elevenlab
     if len(audio_files) > 1:
         output_path = os.path.join(TEMP_ASSETS_FOLDER, f"{main_title}")
         output_path = concatenate_audio_files(audio_files, output_path)
-        return output_path, main_title, text
     else:
-        return audio_files[0], main_title, text
+        output_path = audio_files[0]
+
+    if output_filename:
+        output_extension = os.path.splitext(output_path)[1]
+        final_output_path = os.path.splitext(output_filename)[0] + output_extension
+        os.rename(output_path, final_output_path)
+        output_path = final_output_path
+
+    return output_path, main_title, text
 
 def get_file_type(file_path):
     _, extension = os.path.splitext(file_path)

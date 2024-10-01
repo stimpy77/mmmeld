@@ -19,7 +19,7 @@ def get_image_inputs(args, title, description, files_to_cleanup):
                 if input_path.lower() == "generate":
                     image_description = args.image_description or description or f"A visual representation of audio titled '{title}'"
                     logging.info(f"Generating image with description: {image_description}")
-                    generated_image_path = generate_image(image_description, title, args.image_dimensions)
+                    generated_image_path = generate_image(image_description, title, args.dimensions)  # Changed here
                     image_inputs.append(generated_image_path)
                     files_to_cleanup.append(generated_image_path)
                 elif "youtube.com" in input_path or "youtu.be" in input_path:
@@ -41,7 +41,7 @@ def get_image_inputs(args, title, description, files_to_cleanup):
         logging.info("Autofill enabled, generating default image")
         image_description = f"A visual representation of audio titled '{title}'"
         logging.info(f"Generating image with description: {image_description}")
-        generated_image_path = generate_image(image_description, title, args.image_dimensions)
+        generated_image_path = generate_image(image_description, title, args.dimensions)  # Changed here
         image_inputs = [generated_image_path]
         files_to_cleanup.append(generated_image_path)
     else:
@@ -58,7 +58,7 @@ def get_image_inputs(args, title, description, files_to_cleanup):
                     if not image_description:
                         image_description = f"A visual representation of audio titled '{title}'"
                     logging.info(f"Generating image with description: {image_description}")
-                    generated_image_path = generate_image(image_description, title, args.image_dimensions)
+                    generated_image_path = generate_image(image_description, title, args.dimensions)  # Changed here
                     image_inputs.append(generated_image_path)
                     files_to_cleanup.append(generated_image_path)
                 elif "youtube.com" in input_path or "youtu.be" in input_path:
@@ -82,7 +82,7 @@ def get_image_inputs(args, title, description, files_to_cleanup):
     logging.info(f"Image input processing complete. Total images: {len(image_inputs)}")
     return image_inputs
 
-def generate_image_prompt(description, is_retry=False):
+def generate_image_prompt(description, dimensions, is_retry=False):
     client = OpenAI(api_key=os.environ.get("OPENAI_PERSONAL_API_KEY") or os.environ.get("OPENAI_API_KEY"))
     system_content = "You are a helpful assistant that creates high-quality image prompts for DALL-E based on user descriptions."
     if len(description) < 15:
@@ -90,9 +90,15 @@ def generate_image_prompt(description, is_retry=False):
     if is_retry:
         system_content += " The previous prompt violated content policy. Please create a new prompt that avoids potentially sensitive or controversial topics."
     
+    # Add information about dimensions to the system content
+    system_content += f" The image should be optimized for {dimensions} dimensions."
+    
     user_content = f"Create a detailed, high-quality image prompt for DALL-E based on this description: {description}"
     if len(description) < 15:
         user_content += " Ensure to include visual elements representing music or audio."
+    
+    # Add a reminder about dimensions to the user content
+    user_content += f" Remember to optimize the composition for {dimensions} dimensions."
 
     response = client.chat.completions.create(
         model="gpt-4",
@@ -103,7 +109,7 @@ def generate_image_prompt(description, is_retry=False):
     )
     return response.choices[0].message.content
 
-def generate_image(prompt, title, image_dimensions=None, max_retries=3):
+def generate_image(prompt, title, dimensions=None, max_retries=3):
     client = OpenAI(api_key=os.environ.get("OPENAI_PERSONAL_API_KEY") or os.environ.get("OPENAI_API_KEY"))
     
     # Map user input to DALL-E compatible options
@@ -116,11 +122,11 @@ def generate_image(prompt, title, image_dimensions=None, max_retries=3):
     # Default to square if not specified
     size = "1024x1024"
     
-    if image_dimensions:
-        if image_dimensions.lower() in size_mapping:
-            size = size_mapping[image_dimensions.lower()]
-        elif "x" in image_dimensions:
-            width, height = map(int, image_dimensions.split("x"))
+    if dimensions:
+        if dimensions.lower() in size_mapping:
+            size = size_mapping[dimensions.lower()]
+        elif "x" in dimensions:
+            width, height = map(int, dimensions.split("x"))
             # Choose the closest DALL-E option based on aspect ratio
             aspect_ratio = width / height
             if aspect_ratio > 1.5:
@@ -130,12 +136,15 @@ def generate_image(prompt, title, image_dimensions=None, max_retries=3):
             else:
                 size = "1024x1024"
         else:
-            logger.warning(f"Invalid image dimensions: {image_dimensions}. Using default 1024x1024.")
+            logger.warning(f"Invalid dimensions: {dimensions}. Using default 1024x1024.")
     
     for attempt in range(max_retries):
         try:
+            # Pass the dimensions to generate_image_prompt
+            enhanced_prompt = generate_image_prompt(prompt, size)
+            
             response = client.images.generate(
-                prompt=prompt,
+                prompt=enhanced_prompt,
                 model="dall-e-3",
                 n=1,
                 quality="hd",
