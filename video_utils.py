@@ -2,6 +2,7 @@ import subprocess
 import logging
 import os
 import math
+import json
 
 # Instructions:
 # 1. Review and Rewrite:
@@ -287,14 +288,29 @@ def calculate_max_dimensions(inputs):
 
     for input_path in inputs:
         cmd = [
-            "ffprobe", "-v", "error", "-show_entries", "stream=width,height",
-            "-of", "csv=p=0:s=x", input_path
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height,rotation",
+            "-of", "json", input_path
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
-        width, height = map(int, result.stdout.strip().split('x'))
-        max_width = max(max_width, width)
-        max_height = max(max_height, height)
+        try:
+            data = json.loads(result.stdout)
+            stream = data['streams'][0]
+            width = int(stream['width'])
+            height = int(stream['height'])
+            rotation = stream.get('tags', {}).get('rotate')
 
+            # Only apply rotation if explicitly specified
+            if rotation in ['90', '270']:
+                logger.info(f"Detected rotation of {rotation} degrees for {input_path}")
+                width, height = height, width
+
+            max_width = max(max_width, width)
+            max_height = max(max_height, height)
+        except (json.JSONDecodeError, KeyError, IndexError, ValueError) as e:
+            logger.error(f"Error processing dimensions for {input_path}: {e}")
+
+    logger.info(f"Calculated max dimensions: {max_width}x{max_height}")
     return max_width, max_height
 
 def generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_music_volume, start_margin, end_margin, temp_folder, dimensions=None):
@@ -317,6 +333,20 @@ def generate_video(image_inputs, audio_path, bg_music_path, output_path, bg_musi
         # If dimensions are not specified, use the maximum dimensions of input files
         max_width, max_height = calculate_max_dimensions(image_inputs)
     
+    # Ensure the aspect ratio is correct
+    if max_width > max_height:
+        logger.info("Detected landscape orientation")
+        if max_width / max_height < 16/9:
+            max_width = int(max_height * 16/9)
+    elif max_height > max_width:
+        logger.info("Detected portrait orientation")
+        if max_height / max_width < 16/9:
+            max_height = int(max_width * 16/9)
+    else:
+        logger.info("Detected square orientation")
+
+    logger.info(f"Using dimensions: {max_width}x{max_height}")
+
     # Convert .m4a to .wav if necessary
     if audio_path and audio_path.lower().endswith('.m4a'):
         wav_audio_path = os.path.join(temp_folder, "converted_audio.wav")
@@ -446,3 +476,4 @@ def run_validation_tests(temp_folder):
     logger.info("All validation tests passed")
 
 # Ensure to verify requirements against README.md and specifications
+

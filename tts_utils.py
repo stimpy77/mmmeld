@@ -60,20 +60,21 @@ def split_text_into_chunks(text, max_chunk_size=MAX_CHUNK_SIZE):
 
 def generate_speech(text, voice_id=None, autofill=False, tts_provider='elevenlabs', files_to_cleanup=None, output_filename=None):
     # Handle voice ID selection before chunking
-    if not voice_id and not autofill:
-        if tts_provider == 'elevenlabs':
-            voice_id = input(f"Enter ElevenLabs voice ID, or press ENTER for default [{ELEVENLABS_VOICE_ID}]: ") or ELEVENLABS_VOICE_ID
-        elif tts_provider == 'openai':
-            voice_id = input(f"Enter OpenAI voice ID, or press ENTER for default [{OPENAI_VOICE_ID}]: ") or OPENAI_VOICE_ID
-        elif tts_provider == 'deepgram':
-            voice_id = input(f"Enter DeepGram voice ID, or press ENTER for default [{DEEPGRAM_VOICE_ID}]: ") or DEEPGRAM_VOICE_ID
-    elif not voice_id:
-        if tts_provider == 'elevenlabs':
-            voice_id = ELEVENLABS_VOICE_ID
-        elif tts_provider == 'openai':
-            voice_id = OPENAI_VOICE_ID
-        elif tts_provider == 'deepgram':
-            voice_id = DEEPGRAM_VOICE_ID
+    if not voice_id:
+        if autofill:
+            if tts_provider == 'elevenlabs':
+                voice_id = ELEVENLABS_VOICE_ID
+            elif tts_provider == 'openai':
+                voice_id = OPENAI_VOICE_ID
+            elif tts_provider == 'deepgram':
+                voice_id = DEEPGRAM_VOICE_ID
+        else:
+            if tts_provider == 'elevenlabs':
+                voice_id = input(f"Enter ElevenLabs voice ID, or press ENTER for default [{ELEVENLABS_VOICE_ID}]: ") or ELEVENLABS_VOICE_ID
+            elif tts_provider == 'openai':
+                voice_id = input(f"Enter OpenAI voice ID, or press ENTER for default [{OPENAI_VOICE_ID}]: ") or OPENAI_VOICE_ID
+            elif tts_provider == 'deepgram':
+                voice_id = input(f"Enter DeepGram voice ID, or press ENTER for default [{DEEPGRAM_VOICE_ID}]: ") or DEEPGRAM_VOICE_ID
     
     chunks = split_text_into_chunks(text)
     audio_files = []
@@ -122,10 +123,20 @@ def get_file_type(file_path):
 
 def is_valid_audio_file(file_path):
     try:
-        AudioSegment.from_file(file_path)
-        return True
-    except Exception:
-        return False
+        # Try using ffmpeg directly first (safer way)
+        import subprocess
+        result = subprocess.run(['ffmpeg', '-i', file_path, '-f', 'null', '-'], 
+                               stderr=subprocess.PIPE, stdout=subprocess.PIPE, 
+                               text=True, check=False)
+        return result.returncode == 0
+    except Exception as e:
+        print(f"Error checking file with ffmpeg: {str(e)}")
+        try:
+            # Fallback to pydub
+            AudioSegment.from_file(file_path)
+            return True
+        except Exception:
+            return False
 
 def fix_wav_header(file_path):
     with open(file_path, 'rb') as f:
@@ -271,26 +282,66 @@ def get_highest_quality_format(audio_files):
     return 'wav'  # Default to WAV if no recognized formats are found
 
 def concatenate_audio_files(audio_files, output_path):
-    combined = AudioSegment.empty()
-    for audio_file in audio_files:
-        print(f"Processing file: {audio_file}")
-        try:
-            if not is_valid_audio_file(audio_file):
-                print(f"Fixing invalid audio file: {audio_file}")
-                if audio_file.lower().endswith('.wav'):
-                    fix_wav_header(audio_file)
-                else:
-                    print(f"Unable to fix non-WAV file: {audio_file}")
-                    continue
-            
-            segment = AudioSegment.from_file(audio_file)
-            combined += segment
-        except Exception as e:
-            print(f"Error processing {audio_file}: {str(e)}")
-            continue
+    # Try using ffmpeg directly first
+    try:
+        import subprocess
+        print("Attempting to concatenate with ffmpeg directly...")
+        
+        # Create a temporary file list
+        list_file_path = os.path.join(TEMP_ASSETS_FOLDER, "file_list.txt")
+        with open(list_file_path, 'w') as f:
+            for audio_file in audio_files:
+                f.write(f"file '{os.path.abspath(audio_file)}'\n")
+        
+        output_format = get_highest_quality_format(audio_files)
+        output_path_with_extension = f"{os.path.splitext(output_path)[0]}.{output_format}"
+        
+        # Run ffmpeg to concatenate
+        result = subprocess.run([
+            'ffmpeg', '-f', 'concat', '-safe', '0', 
+            '-i', list_file_path, '-c', 'copy', output_path_with_extension
+        ], check=False)
+        
+        # Clean up the list file
+        os.remove(list_file_path)
+        
+        if result.returncode == 0:
+            print(f"Concatenated audio saved to: {output_path_with_extension}")
+            return output_path_with_extension
+    except Exception as e:
+        print(f"Error with direct ffmpeg concatenation: {str(e)}")
     
-    output_format = get_highest_quality_format(audio_files)
-    output_path_with_extension = f"{os.path.splitext(output_path)[0]}.{output_format}"
-    combined.export(output_path_with_extension, format=output_format)
-    print(f"Concatenated audio saved to: {output_path_with_extension}")
-    return output_path_with_extension
+    # Fall back to pydub if ffmpeg direct method fails
+    print("Falling back to pydub for concatenation...")
+    try:
+        combined = AudioSegment.empty()
+        for audio_file in audio_files:
+            print(f"Processing file: {audio_file}")
+            try:
+                if not is_valid_audio_file(audio_file):
+                    print(f"Fixing invalid audio file: {audio_file}")
+                    if audio_file.lower().endswith('.wav'):
+                        fix_wav_header(audio_file)
+                    else:
+                        print(f"Unable to fix non-WAV file: {audio_file}")
+                        continue
+                
+                segment = AudioSegment.from_file(audio_file)
+                combined += segment
+            except Exception as e:
+                print(f"Error processing {audio_file}: {str(e)}")
+                continue
+        
+        output_format = get_highest_quality_format(audio_files)
+        output_path_with_extension = f"{os.path.splitext(output_path)[0]}.{output_format}"
+        combined.export(output_path_with_extension, format=output_format)
+        print(f"Concatenated audio saved to: {output_path_with_extension}")
+        return output_path_with_extension
+    except Exception as e:
+        print(f"Error with pydub concatenation: {str(e)}")
+        # If all else fails, just return the first audio file
+        if audio_files:
+            print(f"Returning first audio file as fallback: {audio_files[0]}")
+            return audio_files[0]
+        else:
+            raise RuntimeError("No audio files to concatenate")

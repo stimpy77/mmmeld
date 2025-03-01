@@ -33,13 +33,13 @@ def download_youtube_audio(url, files_to_cleanup):
 def get_audio_source(args, files_to_cleanup, tts_provider):
     if args.audio == "generate":
         print(f"Getting audio source with TTS provider: {tts_provider}")
-        return generate_speech(args.text, args.voice_id, False, tts_provider, files_to_cleanup)
+        audio_path, title, description = generate_speech(args.text, args.voice_id, args.autofill, tts_provider, files_to_cleanup)
+        return audio_path, title, description, files_to_cleanup
     elif os.path.isfile(args.audio):
         return args.audio, os.path.splitext(os.path.basename(args.audio))[0], "", files_to_cleanup
     elif "youtube.com" in args.audio or "youtu.be" in args.audio:
         print("Downloading audio from YouTube...")
-        audio_path, title, description = download_youtube_audio(args.audio)
-        files_to_cleanup.append(audio_path)
+        audio_path, title, description = download_youtube_audio(args.audio, files_to_cleanup)
         return audio_path, title, description, files_to_cleanup
     else:
         raise ValueError("Invalid audio input")
