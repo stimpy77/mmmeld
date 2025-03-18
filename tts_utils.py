@@ -9,6 +9,7 @@ from pydub import AudioSegment
 import mimetypes
 import wave
 import struct
+import aiofiles
 
 from config import (
     TEMP_ASSETS_FOLDER,
@@ -104,7 +105,8 @@ def generate_speech(text, voice_id=None, autofill=False, tts_provider='elevenlab
         files_to_cleanup.append(audio_filename)
     
     if len(audio_files) > 1:
-        output_path = os.path.join(TEMP_ASSETS_FOLDER, f"{main_title}")
+        # Use a simple temp name for concatenated file
+        output_path = os.path.join(TEMP_ASSETS_FOLDER, f"temp_combined_{hash(text) % 10000:04d}")
         output_path = concatenate_audio_files(audio_files, output_path)
     else:
         output_path = audio_files[0]
@@ -177,12 +179,13 @@ def generate_speech_with_elevenlabs(text, voice_id):
 
     tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
     headers = {
-        "Accept": "audio/wav",  # Explicitly request WAV format
+        "Accept": "audio/mpeg",  # Changed to match MP3 format
         "xi-api-key": api_key
     }
     data = {
         "text": text,
         "model_id": "eleven_multilingual_v2",
+        "output_format": "mp3_44100_192",  # Highest quality MP3 available without Pro tier
         "voice_settings": {
             "stability": 0.5,
             "similarity_boost": 0.8,
@@ -195,8 +198,8 @@ def generate_speech_with_elevenlabs(text, voice_id):
         content_type = response.headers.get('Content-Type', '')
         print(f"Received content type: {content_type}")  # Debug print
         
-        title = generate_title_from_text(text)
-        audio_filename = os.path.join(TEMP_ASSETS_FOLDER, f"{title}.wav")  # Always use .wav extension
+        # Use simple indexed naming for temp files with .mp3 extension
+        audio_filename = os.path.join(TEMP_ASSETS_FOLDER, f"temp_chunk_{hash(text) % 10000:04d}.mp3")
         
         with open(audio_filename, "wb") as f:
             for chunk in response.iter_content(chunk_size=1024):
@@ -204,9 +207,10 @@ def generate_speech_with_elevenlabs(text, voice_id):
         print(f"Audio generated: {audio_filename}")
         
         if not is_valid_audio_file(audio_filename):
-            print(f"Fixing invalid audio file: {audio_filename}")
-            fix_wav_header(audio_filename)
+            print(f"Warning: Generated MP3 file may be invalid: {audio_filename}")
         
+        # For compatibility with existing code, still generate a title but don't use it for temp files
+        title = generate_title_from_text(text)
         return audio_filename, title, text
     else:
         print(response.text)
@@ -237,8 +241,7 @@ def generate_openai_speech(text, voice_id=None):
         voice=voice_id,
         input=text
     )
-    title = generate_title_from_text(text)
-    output_path = os.path.join(TEMP_ASSETS_FOLDER, f"{title}.mp3")
+    output_path = os.path.join(TEMP_ASSETS_FOLDER, f"temp_chunk_{hash(text) % 10000:04d}.mp3")
     response.stream_to_file(output_path)
     return output_path
 
@@ -246,7 +249,7 @@ async def generate_deepgram_speech(text, voice_id=None):
     deepgram = Deepgram(os.environ["DEEPGRAM_API_KEY"])
     voice_id = voice_id or DEEPGRAM_VOICE_ID
     response = await deepgram.transcription.synthesize(text, voice=voice_id)
-    output_path = os.path.join(TEMP_ASSETS_FOLDER, "generated_speech.mp3")
+    output_path = os.path.join(TEMP_ASSETS_FOLDER, f"temp_chunk_{hash(text) % 10000:04d}.mp3")
     async with aiofiles.open(output_path, mode='wb') as f:
         await f.write(response)
     return output_path
