@@ -54,3 +54,7 @@ test*_fixed_output.mp4
 
 # FFmpeg temp files
 ffmpeg2pass-*
+
+# Root-level stray binaries (guard against accidental outputs)
+/mmmeld
+/mmmeld.exe

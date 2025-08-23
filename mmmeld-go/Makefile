@@ -2,6 +2,22 @@ BINARY_NAME_MMMELD=mmmeld
 BINARY_NAME_TTS=tts
 BUILD_DIR=bin
 
+# OS-aware settings
+OS := $(shell uname -s 2>/dev/null || echo Windows)
+ifeq ($(OS),Windows)
+	MKDIR_P=mkdir $(BUILD_DIR) 2> NUL || exit 0
+	RM_RF=cmd /c rmdir /s /q $(BUILD_DIR) 2> NUL & del /q coverage.out coverage.html 2> NUL & rmdir /s /q temp_assets 2> NUL || exit 0
+	SEP=\\
+	EXEEXT=.exe
+	RUN_PREFIX=
+else
+	MKDIR_P=mkdir -p $(BUILD_DIR)
+	RM_RF=rm -rf $(BUILD_DIR) coverage.out coverage.html temp_assets
+	SEP=/
+	EXEEXT=
+	RUN_PREFIX=./
+endif
+
 .PHONY: all build test clean run-mmmeld run-tts help
 
 all: build test
@@ -10,13 +26,13 @@ build: build-mmmeld build-tts
 
 build-mmmeld:
 	@echo "Building mmmeld..."
-	@mkdir -p $(BUILD_DIR)
-	@go build -o $(BUILD_DIR)/$(BINARY_NAME_MMMELD) ./cmd/mmmeld
+	@$(MKDIR_P)
+	@go build -o $(BUILD_DIR)$(SEP)$(BINARY_NAME_MMMELD)$(EXEEXT) ./cmd/mmmeld
 
 build-tts:
 	@echo "Building tts..."
-	@mkdir -p $(BUILD_DIR)
-	@go build -o $(BUILD_DIR)/$(BINARY_NAME_TTS) ./cmd/tts
+	@$(MKDIR_P)
+	@go build -o $(BUILD_DIR)$(SEP)$(BINARY_NAME_TTS)$(EXEEXT) ./cmd/tts
 
 test:
 	@echo "Running tests..."
@@ -29,17 +45,15 @@ test-coverage:
 
 clean:
 	@echo "Cleaning up..."
-	@rm -rf $(BUILD_DIR)
-	@rm -f coverage.out coverage.html
-	@rm -rf temp_assets
+	@$(RM_RF)
 
 run-mmmeld: build-mmmeld
 	@echo "Running mmmeld..."
-	@./$(BUILD_DIR)/$(BINARY_NAME_MMMELD)
+	@$(RUN_PREFIX)$(BUILD_DIR)$(SEP)$(BINARY_NAME_MMMELD)$(EXEEXT)
 
 run-tts: build-tts
 	@echo "Running tts..."
-	@./$(BUILD_DIR)/$(BINARY_NAME_TTS)
+	@$(RUN_PREFIX)$(BUILD_DIR)$(SEP)$(BINARY_NAME_TTS)$(EXEEXT)
 
 install: build
 	@echo "Installing binaries to /usr/local/bin..."
