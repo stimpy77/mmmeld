@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"mmmeld/internal/audio"
 	"mmmeld/internal/config"
@@ -12,6 +14,8 @@ import (
 	"mmmeld/internal/image"
 	"mmmeld/internal/video"
 )
+
+var stdinReader = bufio.NewReader(os.Stdin)
 
 func main() {
 	// Setup logging
@@ -69,14 +73,14 @@ func processInputs(cfg *config.Config, cleanup *fileutil.CleanupManager) error {
 	
 	// Handle image/video processing
 	var mediaInputs []image.MediaInput
+	// Derive title/description from audio if available (used in both non-interactive and interactive flows)
+	title := ""
+	description := ""
+	if audioSource != nil {
+		title = audioSource.Title
+		description = audioSource.Description
+	}
 	if cfg.Image != "" || cfg.AutoFill {
-		title := ""
-		description := ""
-		if audioSource != nil {
-			title = audioSource.Title
-			description = audioSource.Description
-		}
-		
 		log.Println("Processing image/video inputs...")
 		mediaInputs, err = image.GetImageInputs(cfg, title, description, cleanup)
 		if err != nil {
@@ -84,7 +88,7 @@ func processInputs(cfg *config.Config, cleanup *fileutil.CleanupManager) error {
 		}
 	} else {
 		// Interactive mode for images
-		mediaInputs, err = getImagesInteractive(cfg, cleanup)
+		mediaInputs, err = getImagesInteractive(cfg, cleanup, title, description)
 		if err != nil {
 			return fmt.Errorf("interactive image input failed: %w", err)
 		}
@@ -158,11 +162,37 @@ func processInputs(cfg *config.Config, cleanup *fileutil.CleanupManager) error {
 }
 
 // Interactive mode functions
+
+// readLine reads a full line from stdin after printing the prompt.
+func readLine(prompt string) string {
+	fmt.Print(prompt)
+	line, _ := stdinReader.ReadString('\n')
+	return strings.TrimSpace(line)
+}
+
+// readMultiline reads multiple lines until the user presses Enter twice consecutively.
+func readMultiline(prompt string) string {
+	fmt.Println(prompt)
+	var lines []string
+	emptyCount := 0
+	for {
+		line, _ := stdinReader.ReadString('\n')
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			emptyCount++
+			if emptyCount >= 2 {
+				break
+			}
+			continue
+		}
+		emptyCount = 0
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
 func getAudioInteractive(cfg *config.Config, cleanup *fileutil.CleanupManager) (*audio.AudioSource, error) {
-	fmt.Print("Enter audio source (file path, YouTube URL, or 'generate' for TTS): ")
-	var input string
-	fmt.Scanln(&input)
-	
+	input := readLine("Enter audio source (file path, YouTube URL, or 'generate' for TTS): ")
 	if input == "" {
 		return nil, nil // No audio
 	}
@@ -170,14 +200,15 @@ func getAudioInteractive(cfg *config.Config, cleanup *fileutil.CleanupManager) (
 	cfg.Audio = input
 	
 	if input == "generate" {
-		fmt.Print("Enter text for speech generation: ")
-		var text string
-		fmt.Scanln(&text)
+		text := readMultiline("Enter the text you want to convert to speech (press Enter twice to finish):")
+		if strings.TrimSpace(text) == "" {
+			fmt.Println("No text provided. Skipping audio generation.")
+			cfg.Audio = "" // skip audio per Python behavior
+			return nil, nil
+		}
 		cfg.Text = text
 		
-		fmt.Printf("Enter voice ID (default: %s): ", cfg.VoiceID)
-		var voiceID string
-		fmt.Scanln(&voiceID)
+		voiceID := readLine(fmt.Sprintf("Enter voice ID (default: %s): ", cfg.VoiceID))
 		if voiceID != "" {
 			cfg.VoiceID = voiceID
 		}
@@ -186,39 +217,66 @@ func getAudioInteractive(cfg *config.Config, cleanup *fileutil.CleanupManager) (
 	return audio.GetAudioSource(cfg, cleanup)
 }
 
-func getImagesInteractive(cfg *config.Config, cleanup *fileutil.CleanupManager) ([]image.MediaInput, error) {
-	var inputs []string
+func getImagesInteractive(cfg *config.Config, cleanup *fileutil.CleanupManager, title, description string) ([]image.MediaInput, error) {
+	var results []image.MediaInput
 	
 	fmt.Println("Enter image/video sources (press Enter on empty line to finish):")
+	first := true
 	for {
-		fmt.Print("Path/URL ('generate' for AI image): ")
-		var input string
-		fmt.Scanln(&input)
-		
-		if input == "" {
+		input := readLine("Path/URL ('generate' for AI image): ")
+		if first && input == "" {
+			fmt.Println("Input was empty, will treat first image as 'generate'.")
+			input = "generate"
+		} else if !first && input == "" {
 			break
 		}
-		
-		inputs = append(inputs, input)
-		
-		if input == "generate" && cfg.ImageDescription == "" {
-			fmt.Print("Enter image description (optional): ")
-			var desc string
-			fmt.Scanln(&desc)
-			if desc != "" {
-				cfg.ImageDescription = desc
+
+		prevImage := cfg.Image
+		prevDesc := cfg.ImageDescription
+
+		endAfterThis := false
+		if input == "generate" {
+			desc := readMultiline("Enter image description (press Enter twice to finish; leave empty to infer from audio and finish):")
+			if strings.TrimSpace(desc) == "" {
+				// Use inference and end the list after adding this item
+				endAfterThis = true
 			}
+			cfg.Image = "generate"
+			cfg.ImageDescription = desc
+		} else {
+			cfg.Image = input
+			cfg.ImageDescription = ""
+		}
+
+		items, err := image.GetImageInputs(cfg, title, description, cleanup)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, items...)
+
+		cfg.Image = prevImage
+		cfg.ImageDescription = prevDesc
+		first = false
+
+		if endAfterThis {
+			break
 		}
 	}
 	
-	if len(inputs) == 0 {
-		return nil, fmt.Errorf("no image inputs provided")
+	if len(results) == 0 {
+		// Python fallback: generate a default image when no inputs are provided interactively
+		prevImage := cfg.Image
+		prevDesc := cfg.ImageDescription
+		cfg.Image = "generate"
+		cfg.ImageDescription = "A visually engaging background image"
+		items, err := image.GetImageInputs(cfg, title, description, cleanup)
+		cfg.Image = prevImage
+		cfg.ImageDescription = prevDesc
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, items...)
 	}
 	
-	cfg.Image = fmt.Sprintf("%v", inputs[0])
-	for i := 1; i < len(inputs); i++ {
-		cfg.Image += "," + inputs[i]
-	}
-	
-	return image.GetImageInputs(cfg, "", "", cleanup)
+	return results, nil
 }

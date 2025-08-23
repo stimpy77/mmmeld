@@ -75,7 +75,11 @@ func GetImageInputs(cfg *config.Config, title, description string, cleanup *file
 		
 		imageDesc := cfg.ImageDescription
 		if imageDesc == "" {
-			imageDesc = fmt.Sprintf("A visual representation of audio titled '%s'", title)
+			if title != "" {
+				imageDesc = fmt.Sprintf("A visual representation of audio titled %s", title)
+			} else {
+				imageDesc = "A visually engaging background image"
+			}
 		}
 		
 		input, err := generateImage(imageDesc, title, cleanup)
@@ -95,9 +99,13 @@ func processImageInput(inputPath, imageDescription, title, description string, c
 	case strings.ToLower(inputPath) == "generate":
 		desc := imageDescription
 		if desc == "" {
-			desc = description
-			if desc == "" {
-				desc = fmt.Sprintf("A visual representation of audio titled '%s'", title)
+			if description != "" {
+				// Use the raw audio prompt to avoid encouraging text overlays in the image
+				desc = description
+			} else if title != "" {
+				desc = fmt.Sprintf("A visual representation of audio titled %s", title)
+			} else {
+				desc = "A visually engaging background image"
 			}
 		}
 		log.Printf("Generating image with description: %s", desc)
@@ -150,35 +158,49 @@ func generateImage(description, title string, cleanup *fileutil.CleanupManager) 
 		return nil, fmt.Errorf("OpenAI API key not found in environment")
 	}
 	
-	// First, enhance the prompt using GPT
-	enhancedPrompt, err := enhanceImagePrompt(description, apiKey)
-	if err != nil {
-		log.Printf("Failed to enhance prompt, using original: %v", err)
-		enhancedPrompt = description
+	maxRetries := 5
+	prompt := description
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Enhance the prompt each attempt; pass isRetry=true on subsequent attempts
+		enhancedPrompt, err := enhanceImagePrompt(prompt, apiKey, attempt > 0)
+		if err != nil {
+			log.Printf("Failed to enhance prompt (attempt %d), using original: %v", attempt+1, err)
+			enhancedPrompt = prompt
+		}
+		
+		imageURL, err := generateDALLEImage(enhancedPrompt, apiKey)
+		if err == nil {
+			// Download the generated image, using title and original description to derive the filename
+			imagePath, dlErr := downloadGeneratedImage(imageURL, title, description, cleanup)
+			if dlErr != nil {
+				return nil, fmt.Errorf("failed to download generated image: %w", dlErr)
+			}
+			return &MediaInput{Path: imagePath, IsGenerated: true}, nil
+		}
+		
+		lastErr = err
+		if strings.Contains(err.Error(), "content_policy_violation") {
+			log.Printf("DALL-E content policy violation on attempt %d/%d. Retrying with a safer prompt...", attempt+1, maxRetries)
+			// On retry, modify the prompt slightly to encourage safer content
+			prompt = prompt + " (safe, descriptive, no sensitive content)"
+			continue
+		}
+		
+		// Non-policy errors: do not retry
+		break
 	}
 	
-	// Generate the image
-	imageURL, err := generateDALLEImage(enhancedPrompt, apiKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate image: %w", err)
-	}
-	
-	// Download the generated image
-	imagePath, err := downloadGeneratedImage(imageURL, title, cleanup)
-	if err != nil {
-		return nil, fmt.Errorf("failed to download generated image: %w", err)
-	}
-	
-	return &MediaInput{
-		Path:        imagePath,
-		IsGenerated: true,
-	}, nil
+	return nil, fmt.Errorf("failed to generate image after %d attempts: %w", maxRetries, lastErr)
 }
 
-func enhanceImagePrompt(description, apiKey string) (string, error) {
-	systemContent := "You are a helpful assistant that creates high-quality image prompts for DALL-E based on user descriptions."
+func enhanceImagePrompt(description, apiKey string, isRetry bool) (string, error) {
+	systemContent := "You are a helpful assistant that creates high-quality, safe image prompts for DALL-E based on user descriptions."
 	if len(description) < 15 {
 		systemContent += " Always include visual elements that represent music or audio in your prompts, even if not explicitly mentioned in the description."
+	}
+	if isRetry {
+		systemContent += " The previous prompt may have violated content policy. Create a new, safe prompt that avoids sensitive or controversial topics."
 	}
 	
 	userContent := fmt.Sprintf("Create a detailed, high-quality image prompt for DALL-E based on this description: %s", description)
@@ -277,7 +299,7 @@ func generateDALLEImage(prompt, apiKey string) (string, error) {
 	return imageResp.Data[0].URL, nil
 }
 
-func downloadGeneratedImage(imageURL, title string, cleanup *fileutil.CleanupManager) (string, error) {
+func downloadGeneratedImage(imageURL, title, description string, cleanup *fileutil.CleanupManager) (string, error) {
 	resp, err := http.Get(imageURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to download generated image: %w", err)
@@ -288,13 +310,24 @@ func downloadGeneratedImage(imageURL, title string, cleanup *fileutil.CleanupMan
 		return "", fmt.Errorf("failed to download image: HTTP %d", resp.StatusCode)
 	}
 	
-	// Create filename based on title
+	// Create filename using title and a snippet of the description. Avoid generic prefixes.
 	sanitizedTitle := fileutil.SanitizeFilename(title)
-	if sanitizedTitle == "" {
-		sanitizedTitle = "generated_image"
+	sanitizedDesc := fileutil.SanitizeFilename(description)
+	if len(sanitizedDesc) > 50 {
+		sanitizedDesc = sanitizedDesc[:50]
 	}
-	
-	filename := fmt.Sprintf("%s_%d.png", sanitizedTitle, time.Now().UnixNano())
+	var nameParts []string
+	if sanitizedTitle != "" {
+		nameParts = append(nameParts, sanitizedTitle)
+	}
+	if sanitizedDesc != "" {
+		nameParts = append(nameParts, sanitizedDesc)
+	}
+	name := strings.Join(nameParts, "_")
+	if name == "" {
+		name = fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	filename := name + ".png"
 	imagePath := filepath.Join(config.TempAssetsFolder, filename)
 	
 	file, err := os.Create(imagePath)
