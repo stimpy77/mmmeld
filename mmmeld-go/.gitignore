@@ -1,0 +1,60 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Build directories
+bin/
+dist/
+
+# Temporary files
+temp_assets/
+*.tmp
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Coverage reports
+coverage.out
+coverage.html
+
+# Log files
+*.log
+
+# Generated files
+*_go_output.mp4
+test*_output.mp4
+test*_fixed_output.mp4
+
+# Environment variables
+.env
+.env.local
+
+# FFmpeg temp files
+ffmpeg2pass-*
+
+# Root-level stray binaries (guard against accidental outputs)
+/mmmeld
+/mmmeld.exe
