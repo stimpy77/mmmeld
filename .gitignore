@@ -174,5 +174,6 @@ cython_debug/
 mmmeld.ps1
 
 temp_assets/
+bin/
 
 !test_media/*
