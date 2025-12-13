@@ -8,13 +8,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
 	"mmmeld/internal/config"
-	"mmmeld/internal/ffmpeg"
 	"mmmeld/internal/fileutil"
 )
 
@@ -388,9 +388,10 @@ func concatenateAudioFiles(audioFiles []string, cleanup *fileutil.CleanupManager
 	}
 	defer os.Remove(listFile)
 	
-	cmd := []string{"ffmpeg", "-f", "concat", "-safe", "0", "-i", listFile, "-c", "copy", outputPath}
-	if err := ffmpeg.RunCommand(cmd); err != nil {
-		return "", fmt.Errorf("ffmpeg concat failed: %w", err)
+	cmd := exec.Command("ffmpeg", "-f", "concat", "-safe", "0", "-i", listFile, "-c", "copy", outputPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("ffmpeg concat failed: %w\nOutput: %s", err, output)
 	}
 	
 	cleanup.Add(outputPath)
@@ -419,7 +420,7 @@ func generateTitleFromText(text string) string {
 
 // IsValidAudioFile checks if a file is valid audio using ffmpeg
 func IsValidAudioFile(filepath string) bool {
-	cmd := []string{"ffmpeg", "-v", "error", "-i", filepath, "-f", "null", "-"}
-	err := ffmpeg.RunCommandQuiet(cmd)
+	cmd := exec.Command("ffmpeg", "-v", "error", "-i", filepath, "-f", "null", "-")
+	err := cmd.Run()
 	return err == nil
 }

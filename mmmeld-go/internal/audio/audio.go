@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"mmmeld/internal/config"
-	"mmmeld/internal/ffmpeg"
 	"mmmeld/internal/fileutil"
 	"mmmeld/internal/tts"
 )
@@ -107,8 +106,8 @@ func GetAudioDuration(filepath string) (float64, error) {
 
 // ValidateAudioFile checks if a file is a valid audio file using ffmpeg
 func ValidateAudioFile(filepath string) error {
-	cmd := []string{"ffmpeg", "-v", "error", "-i", filepath, "-f", "null", "-"}
-	if err := ffmpeg.RunCommandQuiet(cmd); err != nil {
+	cmd := exec.Command("ffmpeg", "-v", "error", "-i", filepath, "-f", "null", "-")
+	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("invalid audio file: %s", filepath)
 	}
 	return nil
@@ -128,9 +127,10 @@ func ConvertToFormat(inputPath, outputPath, format string, cleanup *fileutil.Cle
 		return fmt.Errorf("unsupported audio format: %s", format)
 	}
 	
-	cmd := []string{"ffmpeg", "-i", inputPath, "-c:a", codec, "-y", outputPath}
-	if err := ffmpeg.RunCommand(cmd); err != nil {
-		return fmt.Errorf("audio conversion failed: %w", err)
+	cmd := exec.Command("ffmpeg", "-i", inputPath, "-c:a", codec, "-y", outputPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("audio conversion failed: %w\nOutput: %s", err, output)
 	}
 	
 	cleanup.Add(outputPath)
@@ -175,9 +175,10 @@ func ApplyAudioEffects(inputPath, outputPath string, volume float64, fadeInDurat
 		}
 	} else {
 		filterChain := strings.Join(filters, ",")
-		cmd := []string{"ffmpeg", "-i", inputPath, "-af", filterChain, "-y", outputPath}
-		if err := ffmpeg.RunCommand(cmd); err != nil {
-			return fmt.Errorf("audio effects failed: %w", err)
+		cmd := exec.Command("ffmpeg", "-i", inputPath, "-af", filterChain, "-y", outputPath)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("audio effects failed: %w\nOutput: %s", err, output)
 		}
 	}
 	
@@ -230,8 +231,10 @@ func MixAudioFiles(files []string, outputPath string, volumes []float64, cleanup
 	
 	args = append(args, "-filter_complex", filterGraph, "-map", "[out]", outputPath)
 	
-	if err := ffmpeg.RunCommand(args); err != nil {
-		return fmt.Errorf("audio mixing failed: %w", err)
+	cmd := exec.Command("ffmpeg", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("audio mixing failed: %w\nOutput: %s", err, output)
 	}
 	
 	cleanup.Add(outputPath)
