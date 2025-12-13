@@ -8,7 +8,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 - **Build and run interactively**: `make run-mmmeld` or `./bin/mmmeld`
 - **Run with all defaults**: `./bin/mmmeld --autofill`
 - **Generate TTS standalone**: `./bin/tts --text "your text" --provider elevenlabs --voiceid WWr4C8ld745zI3BiA8n7`
-- **Test specific scenarios**: `./bin/mmmeld --audio "tts:Hello world" --images "generate:sunset" --output test.mp4`
 
 ### Development Commands
 - **Build all binaries**: `make build` or `make`
@@ -104,18 +103,6 @@ Use test media files in `test_media/` directory:
 - Video files (.mp4) of different lengths
 - Image files (.png, .jpg) in different aspect ratios
 
-### Quick Test Examples
-```bash
-# Test basic image to video
-./bin/mmmeld --images test.jpg --output test.mp4 --autofill
-
-# Test TTS with generated image
-./bin/mmmeld --audio "tts:Hello world" --images "generate:sunset" --output test.mp4
-
-# Test YouTube audio with local images
-./bin/mmmeld --audio "https://youtube.com/watch?v=VIDEO_ID" --images "*.jpg" --output test.mp4
-```
-
 ## API Integration
 
 ### Text-to-Speech Providers
@@ -169,13 +156,6 @@ GOOS=windows GOARCH=amd64 go build -o bin/mmmeld.exe ./cmd/mmmeld
 - Use `--nocleanup` to inspect temp files
 - Monitor memory with large files
 - Check disk space for temp assets
-
-## Common Issues and Solutions
-- **ffmpeg not found**: Install ffmpeg and ensure it's in PATH
-- **API key errors**: Set environment variables for required AI services
-- **YouTube download fails**: Update yt-dlp with package manager or direct download
-- **Memory issues with large videos**: Use smaller resolution or shorter duration
-- **Build failures**: Ensure Go 1.21+ and run `go mod tidy`
 
 ## Migration Notes
 

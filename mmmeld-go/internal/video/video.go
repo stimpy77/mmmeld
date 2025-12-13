@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"mmmeld/internal/config"
-	"mmmeld/internal/ffmpeg"
 	"mmmeld/internal/fileutil"
 	"mmmeld/internal/image"
 )
@@ -339,7 +338,7 @@ func GenerateVideo(params VideoGenParams) error {
 	if params.AudioPath != "" {
 		inputs = append(inputs, "-i", params.AudioPath)
 		filterComplex = append(filterComplex, fmt.Sprintf(
-			"[2:a]adelay=%d|%d,apad=pad_dur=%.3f,loudnorm=I=-16:TP=-1.5:LRA=11[main_audio];",
+			"[2:a]adelay=%d|%d,apad=pad_dur=%.3f[main_audio];",
 			int(params.AudioMargins.Start*1000), int(params.AudioMargins.Start*1000), params.AudioMargins.End))
 	}
 	
@@ -418,9 +417,18 @@ func ensureVideoHasAudio(inputPath, tempFolder string) (string, error) {
 	return outputPath, nil
 }
 
-// runFFmpegCommand executes ffmpeg with proper error handling and real-time output
+// runFFmpegCommand executes ffmpeg with proper error handling
 func runFFmpegCommand(cmd []string) error {
-	return ffmpeg.RunCommand(cmd)
+	log.Printf("Running ffmpeg: %s", strings.Join(cmd, " "))
+	
+	execCmd := exec.Command(cmd[0], cmd[1:]...)
+	output, err := execCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ffmpeg failed: %w\nOutput: %s", err, string(output))
+	}
+	
+	log.Println("ffmpeg command completed successfully")
+	return nil
 }
 
 // ValidateVideo checks if the generated video meets expectations
