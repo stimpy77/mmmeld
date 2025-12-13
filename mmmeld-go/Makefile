@@ -1,6 +1,7 @@
 BINARY_NAME_MMMELD=mmmeld
 BINARY_NAME_TTS=tts
 BUILD_DIR=bin
+INSTALL_DIR ?= /usr/local/bin
 
 # OS-aware settings
 OS := $(shell uname -s 2>/dev/null || echo Windows)
@@ -56,9 +57,11 @@ run-tts: build-tts
 	@$(RUN_PREFIX)$(BUILD_DIR)$(SEP)$(BINARY_NAME_TTS)$(EXEEXT)
 
 install: build
-	@echo "Installing binaries to /usr/local/bin..."
-	@sudo cp $(BUILD_DIR)/$(BINARY_NAME_MMMELD) /usr/local/bin/
-	@sudo cp $(BUILD_DIR)/$(BINARY_NAME_TTS) /usr/local/bin/
+	@echo "Installing binaries to $(INSTALL_DIR)..."
+	@mkdir -p $(INSTALL_DIR)
+	@cp $(BUILD_DIR)/$(BINARY_NAME_MMMELD) $(INSTALL_DIR)/
+	@cp $(BUILD_DIR)/$(BINARY_NAME_TTS) $(INSTALL_DIR)/
+	@echo "Installed to $(INSTALL_DIR). Make sure it's in your PATH."
 
 fmt:
 	@echo "Formatting code..."
@@ -84,7 +87,7 @@ help:
 	@echo "  clean         - Clean build artifacts and temp files"
 	@echo "  run-mmmeld    - Build and run mmmeld"
 	@echo "  run-tts       - Build and run tts"
-	@echo "  install       - Install binaries to /usr/local/bin"
+	@echo "  install       - Install binaries (default: /usr/local/bin, override with INSTALL_DIR)"
 	@echo "  fmt           - Format Go code"
 	@echo "  vet           - Run go vet"
 	@echo "  lint          - Run golint"
