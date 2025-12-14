@@ -35,6 +35,8 @@ type ImageGenOptions struct {
 	MaxRetries   int                // Max retries for validation failures (default 10)
 	ValidateText bool               // Whether to validate text rendering
 	AttemptNum   int                // Current attempt number for file naming (1-based)
+	StyleType    string             // Ideogram style type (AUTO, GENERAL, REALISTIC, DESIGN, FICTION)
+	StylePreset  string             // Ideogram style preset (e.g., CINEMATIC, OIL_PAINTING, etc.)
 }
 
 type OpenAIImageRequest struct {
@@ -73,6 +75,7 @@ type IdeogramRequest struct {
 	AspectRatio    string `json:"aspect_ratio,omitempty"`
 	RenderingSpeed string `json:"rendering_speed,omitempty"`
 	StyleType      string `json:"style_type,omitempty"`
+	StylePreset    string `json:"style_preset,omitempty"`
 }
 
 type IdeogramResponse struct {
@@ -100,7 +103,7 @@ func GetImageInputsWithAudio(cfg *config.Config, title, description, audioPath s
 		if notes == "" {
 			notes = description
 		}
-		prompt, err := analyzeAudioForPrompt(audioPath, title, notes, cfg.ImageCaption, cfg.ImageSubcaption)
+		prompt, err := analyzeAudioForPrompt(audioPath, title, notes, cfg.ImageCaption, cfg.ImageSubcaption, cfg.ImageStyle)
 		if err != nil {
 			log.Printf("Warning: Audio analysis failed, falling back to default: %v", err)
 		} else {
@@ -132,6 +135,8 @@ func GetImageInputsWithAudio(cfg *config.Config, title, description, audioPath s
 				AspectRatio:  cfg.AspectRatio,
 				ValidateText: cfg.ImageCaption != "" || cfg.ImageSubcaption != "",
 				MaxRetries:   10,
+				StyleType:    cfg.StyleType,
+				StylePreset:  cfg.StylePreset,
 			}
 
 			input, err := processImageInputWithOpts(inputPath, opts, description, cleanup)
@@ -165,6 +170,8 @@ func GetImageInputsWithAudio(cfg *config.Config, title, description, audioPath s
 			AspectRatio:  cfg.AspectRatio,
 			ValidateText: cfg.ImageCaption != "" || cfg.ImageSubcaption != "",
 			MaxRetries:   10,
+			StyleType:    cfg.StyleType,
+			StylePreset:  cfg.StylePreset,
 		}
 
 		input, err := generateImageWithValidation(opts, cleanup)
@@ -468,13 +475,31 @@ func generateIdeogramImageWithOpts(opts ImageGenOptions, cleanup *fileutil.Clean
 	}
 
 	aspectRatioStr := opts.AspectRatio.IdeogramAspectRatio()
-	log.Printf("Generating image with Ideogram v3 (aspect ratio: %s)...", aspectRatioStr)
+
+	// When using style_preset, style_type must be AUTO or GENERAL (API constraint)
+	styleType := opts.StyleType
+	if opts.StylePreset != "" && styleType != "" && styleType != "AUTO" && styleType != "GENERAL" {
+		log.Printf("Note: style_preset requires AUTO or GENERAL style_type, overriding %s -> GENERAL", styleType)
+		styleType = "GENERAL"
+	}
+
+	// Log style options if set
+	styleInfo := ""
+	if styleType != "" {
+		styleInfo += fmt.Sprintf(", style_type: %s", styleType)
+	}
+	if opts.StylePreset != "" {
+		styleInfo += fmt.Sprintf(", style_preset: %s", opts.StylePreset)
+	}
+	log.Printf("Generating image with Ideogram v3 (aspect ratio: %s%s)...", aspectRatioStr, styleInfo)
 
 	// Create the request
 	reqBody := IdeogramRequest{
 		Prompt:         opts.Description,
 		AspectRatio:    aspectRatioStr,
 		RenderingSpeed: "TURBO",
+		StyleType:      styleType,
+		StylePreset:    opts.StylePreset,
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -708,7 +733,7 @@ func GetMediaType(filePath string) string {
 }
 
 // analyzeAudioForPrompt uses Gemini to analyze an audio file and generate an image prompt
-func analyzeAudioForPrompt(audioPath, title, notes, caption, subcaption string) (string, error) {
+func analyzeAudioForPrompt(audioPath, title, notes, caption, subcaption, style string) (string, error) {
 	ctx := context.Background()
 
 	log.Printf("Gemini analysis - Title: %q", title)
@@ -719,10 +744,26 @@ func analyzeAudioForPrompt(audioPath, title, notes, caption, subcaption string) 
 	if subcaption != "" {
 		log.Printf("Gemini analysis - Subcaption: %q", subcaption)
 	}
+	if style != "" && style != "auto" {
+		log.Printf("Gemini analysis - Style: %q", style)
+	}
 
 	client, err := genai.NewClient(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to create Gemini client: %w", err)
+	}
+
+	// Convert style string to StylePreference
+	stylePref := genai.StyleAuto
+	switch style {
+	case "photorealistic":
+		stylePref = genai.StylePhotorealistic
+	case "artistic":
+		stylePref = genai.StyleArtistic
+	case "abstract":
+		stylePref = genai.StyleAbstract
+	case "cinematic":
+		stylePref = genai.StyleCinematic
 	}
 
 	opts := genai.PromptOptions{
@@ -730,7 +771,7 @@ func analyzeAudioForPrompt(audioPath, title, notes, caption, subcaption string) 
 		Notes:           notes,
 		Caption:         caption,
 		Subcaption:      subcaption,
-		StylePreference: genai.StyleAuto,
+		StylePreference: stylePref,
 		Quiet:           false,
 	}
 

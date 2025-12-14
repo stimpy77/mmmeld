@@ -91,6 +91,9 @@ type Config struct {
 
 	// Image generation options
 	AspectRatio AspectRatio `json:"aspect_ratio"` // Aspect ratio for generated images
+	ImageStyle  string      `json:"image_style"`  // Style preference for generated images (auto, photorealistic, artistic, abstract, cinematic)
+	StyleType   string      `json:"style_type"`   // Ideogram style type (AUTO, GENERAL, REALISTIC, DESIGN, FICTION)
+	StylePreset string      `json:"style_preset"` // Ideogram style preset (e.g., CINEMATIC, OIL_PAINTING, etc.)
 }
 
 func New() *Config {
@@ -165,6 +168,15 @@ func (c *Config) LoadFromFlags() error {
 
 	fs.StringVar(&c.ImageSubcaption, "image-subcaption", "", "Subcaption/subtitle text to render on the generated image")
 	fs.StringVar(&c.ImageSubcaption, "isc", "", "Subcaption/subtitle text to render on the generated image")
+
+	fs.StringVar(&c.ImageStyle, "image-style", "auto", "Style for generated images (auto, photorealistic, artistic, abstract, cinematic)")
+	fs.StringVar(&c.ImageStyle, "is", "auto", "Style for generated images (shorthand)")
+
+	fs.StringVar(&c.StyleType, "style-type", "", "Ideogram style type (AUTO, GENERAL, REALISTIC, DESIGN, FICTION)")
+	fs.StringVar(&c.StyleType, "st", "", "Ideogram style type (shorthand)")
+
+	fs.StringVar(&c.StylePreset, "style-preset", "", "Ideogram style preset (e.g., CINEMATIC, OIL_PAINTING, DRAMATIC_CINEMA, WATERCOLOR, etc.)")
+	fs.StringVar(&c.StylePreset, "spr", "", "Ideogram style preset (shorthand)")
 
 	var aspectRatioStr string
 	fs.StringVar(&aspectRatioStr, "aspect-ratio", "16:9", "Aspect ratio for generated images (16:9, 9:16, 1:1, 4:3, 3:4, 3:2, 2:3)")
