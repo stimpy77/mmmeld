@@ -378,8 +378,8 @@ func generateImageWithValidation(opts ImageGenOptions, cleanup *fileutil.Cleanup
 		}
 	}
 
-	// If best score is above minimum threshold (6.0), use it with a warning
-	if bestInput != nil && bestScore > 6.0 {
+	// If best score meets minimum threshold (>=6.0), use it with a warning
+	if bestInput != nil && bestScore >= 6.0 {
 		log.Printf("Warning: Text validation failed after %d attempts, using best image (score: %.1f)", maxRetries, bestScore)
 		// Clean up non-best images
 		for _, prev := range allAttempts {
@@ -394,7 +394,7 @@ func generateImageWithValidation(opts ImageGenOptions, cleanup *fileutil.Cleanup
 		return bestInput, nil
 	}
 
-	// Score too low (≤6.0) - fail and retain all images for inspection
+	// Score too low (<6.0) - fail and retain all images for inspection
 	if bestInput != nil {
 		log.Printf("ERROR: Best score %.1f is below minimum threshold (6.0) after %d attempts", bestScore, maxRetries)
 		log.Printf("Retaining all %d generated images in temp_assets for inspection", len(allAttempts))
@@ -672,8 +672,10 @@ func downloadGeneratedImage(imageURL, title, description string, attemptNum int,
 		return "", fmt.Errorf("failed to download image: HTTP %d", resp.StatusCode)
 	}
 
-	// Create numbered filename format: ideogram_0001.png, ideogram_0002.png, etc.
-	filename := fmt.Sprintf("ideogram_%04d.png", attemptNum)
+	// Create filename with epoch timestamp to avoid collisions across parallel runs
+	// Format: ideogram_<epoch>_0001.png, ideogram_<epoch>_0002.png, etc.
+	epoch := time.Now().UnixMilli()
+	filename := fmt.Sprintf("ideogram_%d_%04d.png", epoch, attemptNum)
 	imagePath := filepath.Join(config.TempAssetsFolder, filename)
 
 	file, err := os.Create(imagePath)

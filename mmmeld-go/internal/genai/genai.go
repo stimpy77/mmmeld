@@ -1052,13 +1052,18 @@ Output ONLY this JSON (no markdown, no explanation):
 }
 
 SCORING (score field) - evaluate how well the image meets quality standards:
-- 10.0: Perfect - text correct, image looks professional and realistic
+- 10.0: Perfect - text correct with exact or acceptable casing, image looks professional and realistic
 - 8.0-9.9: Excellent - text correct, image high quality with no major artifacts
-- 6.0-7.9: Good - text mostly correct, image acceptable quality
-- 4.0-5.9: Fair - text issues OR noticeable visual artifacts/unrealistic elements
-- 1.0-3.9: Poor - text missing/illegible OR major visual problems
+- 6.0-7.9: Good - text readable and correctly spelled but casing differs, OR minor image quality issues
+- 4.0-5.9: Fair - text has spelling errors OR noticeable visual artifacts/unrealistic elements
+- 1.0-3.9: Poor - text missing/illegible OR major visual problems (AI artifacts)
 
-Primary factors (in order): text accuracy, visual realism, image quality.
+IMPORTANT SCORING NOTES:
+- If text is correctly SPELLED and READABLE but has wrong casing (e.g., all caps when mixed case expected), score should be 6.0-7.9, NOT lower
+- Casing issues alone should NOT drop score below 6.0
+- Only spelling errors, missing text, or visual artifacts should drop score below 6.0
+
+Primary factors (in order): text spelling accuracy, visual realism, text casing.
 
 AI GENERATION ARTIFACTS TO CHECK FOR (FAIL if present):
 - Glass/crystal shatter effects on soft materials (fabric, cloth, curtains, skin)
