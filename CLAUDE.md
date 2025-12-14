@@ -2,71 +2,56 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Commands
+## Project Structure
 
-### Core Usage
-- **Run mmmeld interactively**: `python mmmeld.py`
-- **Run with all defaults**: `python mmmeld.py --autofill`
-- **Generate TTS standalone**: `python tts.py --text "your text" --provider elevenlabs --voiceid WWr4C8ld745zI3BiA8n7`
+This repository contains **mmmeld**, a multimedia tool for creating videos from audio and images with AI-powered features.
 
-### Common Development Commands
-- **Run validation tests**: Open `validation_tests.ipynb` in Jupyter/VS Code to execute parameterized test scenarios
-- **Setup command aliases** (Mac/Linux): `./setup_mmmeld.sh`
-- **Setup command aliases** (Windows): `.\Setup-Mmmeld.ps1`
-- **Clean temp files**: Use `--cleanup` flag (default behavior) or `--nocleanup` to preserve
+- **mmmeld-go/**: **Active development** - Go rewrite (preferred)
+- **mmmeld-python/**: Legacy Python version (deprecated)
+- **scripts/**: Utility scripts
+- **test_media/**: Test files for development
 
-### Dependencies Installation
+## Primary Development: mmmeld-go
+
+All active development should be done in the `mmmeld-go/` directory. See `mmmeld-go/CLAUDE.md` for detailed guidance.
+
+### Quick Commands
 ```bash
-pip install openai pillow requests tqdm pytube elevenlabs yt-dlp deepgram-sdk aiohttp pydub
+cd mmmeld-go
+make build                    # Build all binaries
+./bin/mmmeld --help           # Main video generator
+./bin/prompt --help           # Audio-to-prompt tool  
+./bin/tts --help              # Text-to-speech tool
 ```
 
-## Architecture Overview
+### Key Features
+- **Image Generation**: Ideogram v3 API
+- **Audio Analysis**: Gemini analyzes audio to generate contextual image prompts
+- **Text Overlay**: Caption and subcaption support on generated images
+- **Image Validation**: Gemini validates text rendering, retries on failure
+- **TTS Providers**: ElevenLabs, OpenAI, DeepGram
+- **Video Processing**: FFmpeg-based composition
 
-### Core Components
-- **mmmeld.py**: Main orchestrator that coordinates all components
-- **config.py**: Configuration, argument parsing, and API key management
-- **audio_utils.py**: Audio source handling (local files, YouTube, TTS generation)
-- **video_utils.py**: Video generation engine using ffmpeg with complex sequencing logic
-- **image_utils.py**: Image processing, AI generation via DALL-E, and media downloads
-- **tts_utils.py**: Multi-provider text-to-speech (ElevenLabs, OpenAI, DeepGram)
-- **file_utils.py**: File operations, YouTube downloads, cleanup management
+### Environment Variables
+```bash
+export GEMINI_API_KEY="your-key"
+export IDEOGRAM_API_KEY="your-key"
+export OPENAI_API_KEY="your-key"
+export ELEVENLABS_API_KEY="your-key"
+export DEEPGRAM_API_KEY="your-key"
+```
 
-### Processing Flow
-1. **Input Processing**: Parse audio/image sources (local files, URLs, or "generate")
-2. **Media Acquisition**: Download from YouTube, generate via AI, or validate local files
-3. **Duration Calculation**: Determine total video duration based on main audio + margins
-4. **Visual Sequencing**: Create video sequence with complex timing rules
-5. **Final Composition**: Combine visuals, main audio, and background music with ffmpeg
+### Example Usage
+```bash
+# Generate video with AI-analyzed image from audio
+./bin/mmmeld -a song.mp3 --image generate --analyze-audio \
+  --image-caption "Song Title" --image-subcaption "Artist" \
+  -ar 16:9 -o output.mp4
 
-### Video Generation Rules (Critical Logic)
-The application follows complex sequencing rules defined in README.md lines 216-266:
+# Generate image prompt from audio (standalone)
+./bin/prompt -file song.mp3 -title "Song Title" --verify
+```
 
-- **With main audio**: Total duration = audio_duration + lead_in + tail (default: 0.5s + 2s)
-- **Without main audio**: Duration determined by visual sequence (5s per image + video durations)
-- **Multiple videos**: Sequential playback, looping if needed to fill audio duration
-- **Mixed media**: Videos play first, then images fill remaining time
-- **Audio margins**: Only applied when main audio present; tail serves as fade-out duration
+## Legacy: mmmeld-python
 
-### AI Integration
-- **Image Generation**: DALL-E via OpenAI API
-- **Text-to-Speech**: ElevenLabs (primary), OpenAI, or DeepGram
-- **Content Enhancement**: GPT for title shortening and descriptions
-
-## Key Configuration
-- **Default voice IDs**: ElevenLabs (WWr4C8ld745zI3BiA8n7), OpenAI (onyx), DeepGram (aura-zeus-en)
-- **Temp folder**: `temp_assets/` (configurable)
-- **Background music volume**: 0.2 (configurable)
-- **Max filename length**: 100 characters
-
-## Testing Strategy
-Use `validation_tests.ipynb` for comprehensive scenario testing:
-- Single/multiple images with/without audio
-- Video looping and cutting scenarios
-- YouTube content integration
-- TTS and AI image generation
-- Background music and custom margins
-
-## Dependencies
-- **ffmpeg**: Required for all video/audio processing
-- **AI APIs**: OpenAI (images + TTS), ElevenLabs (TTS), DeepGram (TTS)
-- **Python packages**: See requirements in README.md installation section
+The Python version in `mmmeld-python/` is deprecated but retained for reference. Do not add new features to the Python version.

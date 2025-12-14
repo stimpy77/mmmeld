@@ -5,11 +5,15 @@ A high-performance Go rewrite of the mmmeld multimedia tool for creating videos 
 ## Features
 
 - **Text-to-Speech**: Multiple providers (ElevenLabs, OpenAI, DeepGram)
-- **Image Generation**: AI-powered image creation using DALL-E
+- **Image Generation**: AI-powered image creation using Ideogram v3
+- **Audio-to-Image AI**: Gemini analyzes audio to generate contextually-aware image prompts
+- **Text Overlay**: Add captions and subcaptions to generated images
+- **Image Validation**: Gemini validates generated images and retries if text is incorrect
 - **Video Processing**: Complex video sequencing with ffmpeg
 - **YouTube Integration**: Download audio/video from YouTube URLs
 - **Background Music**: Support for background music with volume control
 - **Audio Margins**: Configurable lead-in and fade-out timing
+- **Aspect Ratio Control**: Generate images in various aspect ratios (16:9, 9:16, 1:1, etc.)
 - **Interactive Mode**: Command-line prompts for easy usage
 - **Batch Processing**: Handle multiple images/videos in sequence
 
@@ -98,6 +102,12 @@ Audio Options:
 Image/Video Options:
   --image, -i          Image/video files, URLs, or 'generate' (comma-separated)
   --image-description  Description for AI image generation
+  --analyze-audio, -aa Use Gemini to analyze audio and generate image prompt
+  --audio-image-notes  Additional context/constraints for audio analysis
+  --image-caption, -ic Caption text to render on the generated image
+  --image-subcaption, -isc  Subcaption/subtitle text to render on the image
+  --aspect-ratio, -ar  Aspect ratio for generated images (default: 16:9)
+                       Options: 16:9, 9:16, 1:1, 4:3, 3:4, 3:2, 2:3
 
 Background Music:
   --bg-music, -bm      Background music file or YouTube URL  
@@ -117,6 +127,8 @@ API Keys:
   --openai-key         OpenAI API key
   --elevenlabs-key     ElevenLabs API key  
   --deepgram-key       DeepGram API key
+  --gemini-key         Google Gemini API key
+  --ideogram-key       Ideogram API key
 ```
 
 #### Environment Variables
@@ -127,6 +139,60 @@ Set API keys via environment variables:
 export OPENAI_API_KEY="your-openai-key"
 export ELEVENLABS_API_KEY="your-elevenlabs-key"
 export DEEPGRAM_API_KEY="your-deepgram-key"
+export GEMINI_API_KEY="your-gemini-key"
+export IDEOGRAM_API_KEY="your-ideogram-key"
+```
+
+### prompt - Standalone Audio-to-Prompt Tool
+
+Generate image prompts from audio files using Gemini's audio analysis:
+
+```bash
+# Basic usage - analyze audio and generate prompt
+./bin/prompt -file song.mp3 -title "Song Title"
+
+# With captions for text overlay
+./bin/prompt -file song.mp3 -title "Song Title" \
+  -caption "Main Title" \
+  -subcaption "Subtitle Text"
+
+# With style preference
+./bin/prompt -file song.mp3 -title "Song Title" -style cinematic
+
+# With additional notes/constraints
+./bin/prompt -file song.mp3 -title "Song Title" \
+  -notes "exclude AI cliches like lone figures; prefer unique camera angles"
+
+# Generate and verify image (with validation)
+./bin/prompt -file song.mp3 -title "Song Title" \
+  -caption "Title" -subcaption "Subtitle" \
+  --verify
+
+# Show debug output (raw audio analysis)
+./bin/prompt -file song.mp3 -title "Song Title" --debug
+
+# Specify aspect ratio
+./bin/prompt -file song.mp3 -title "Song Title" -ar 1:1
+```
+
+#### prompt Options
+
+```bash
+./bin/prompt [options]
+
+Required:
+  -file, -f            Path to audio file to analyze
+  -title               Title/name of the audio (provides context)
+
+Optional:
+  -notes, -n           Additional context or constraints for analysis
+  -style, -s           Style preference: photorealistic, cinematic, 
+                       illustrated, abstract, minimalist (default: cinematic)
+  -caption, -c         Caption text for image overlay
+  -subcaption, -sc     Subcaption text for image overlay
+  -aspect-ratio, -ar   Aspect ratio (default: 16:9)
+  --verify, -v         Generate image and validate with Gemini
+  --debug              Show raw audio analysis JSON
 ```
 
 ### tts - Standalone Text-to-Speech
@@ -150,22 +216,58 @@ echo "Hello world" | ./bin/tts --provider deepgram --voiceid aura-zeus-en
 ./bin/mmmeld --audio generate --text "Welcome to our presentation" --image generate --image-description "Professional presentation slide with modern design"
 ```
 
-### 2. Music Video from YouTube Audio
+### 2. Music Video with Audio-Analyzed Image
+
+```bash
+./bin/mmmeld --audio song.mp3 \
+  --image generate \
+  --analyze-audio \
+  --audio-image-notes "worship song; exclude AI cliches like lone figures" \
+  --image-caption "Song Title" \
+  --image-subcaption "Artist Name" \
+  -ar 16:9 \
+  -o output.mp4
+```
+
+### 3. Square Image for Social Media
+
+```bash
+./bin/mmmeld --audio track.wav \
+  --image generate \
+  --analyze-audio \
+  --image-caption "Track Name" \
+  -ar 1:1 \
+  -o square_output.mp4
+```
+
+### 4. Music Video from YouTube Audio
 
 ```bash
 ./bin/mmmeld --audio "https://youtube.com/watch?v=dQw4w9WgXcQ" --image image1.jpg,image2.jpg,image3.jpg
 ```
 
-### 3. Podcast Episode with Background Music
+### 5. Podcast Episode with Background Music
 
 ```bash
 ./bin/mmmeld --audio podcast.mp3 --image cover.jpg --bg-music background.mp3 --bg-music-volume 0.1 --audiomargin 1.0,3.0
 ```
 
-### 4. Multiple Videos Sequence
+### 6. Multiple Videos Sequence
 
 ```bash
 ./bin/mmmeld --audio narration.mp3 --image video1.mp4,image1.jpg,video2.mp4
+```
+
+### 7. Standalone Prompt Generation
+
+```bash
+# Just generate a prompt (no image)
+./bin/prompt -file song.mp3 -title "My Song" -style cinematic
+
+# Generate prompt + image + validate text rendering
+./bin/prompt -file song.mp3 -title "My Song" \
+  -caption "MY SONG" -subcaption "Album Name" \
+  --verify
 ```
 
 ## Video Generation Rules
@@ -222,14 +324,17 @@ make check
 ```
 cmd/
   mmmeld/     - Main video generator
+  prompt/     - Standalone audio-to-prompt tool
   tts/        - Standalone TTS tool
 internal/
   config/     - Configuration and CLI parsing
   audio/      - Audio processing utilities
   video/      - Video generation (core logic)
-  image/      - Image processing and AI generation
+  image/      - Image processing and Ideogram generation
+  genai/      - Gemini AI integration (audio analysis, validation)
   tts/        - Text-to-speech providers
   fileutil/   - File operations and cleanup
+  ffmpeg/     - FFmpeg wrapper utilities
 ```
 
 ## API Integration
@@ -253,10 +358,20 @@ internal/
 
 ### Image Generation
 
-- **DALL-E 3** via OpenAI API
-- Requires: `OPENAI_API_KEY`
-- Generates 1024x1024 images
-- Automatic prompt enhancement
+- **Ideogram v3** API for high-quality image generation
+- Requires: `IDEOGRAM_API_KEY`
+- Supports aspect ratios: 16:9, 9:16, 1:1, 4:3, 3:4, 3:2, 2:3
+- Text overlay with caption and subcaption support
+
+### Audio Analysis (Gemini)
+
+- **Gemini Pro** analyzes audio to generate contextual image prompts
+- Requires: `GEMINI_API_KEY`
+- Two-pass pipeline:
+  1. **Pass A**: Audio → Structured brief (genre, mood, visual elements)
+  2. **Pass B**: Brief → Optimized Ideogram prompt
+- Validates generated images for correct text rendering
+- Retries on validation failure (up to 3 attempts)
 
 ## Performance Considerations
 

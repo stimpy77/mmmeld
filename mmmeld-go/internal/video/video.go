@@ -46,13 +46,13 @@ type Dimensions struct {
 }
 
 type VideoGenParams struct {
-	MediaInputs     []image.MediaInput
-	AudioPath       string
-	BGMusicPath     string
-	OutputPath      string
-	BGMusicVolume   float64
-	AudioMargins    config.AudioMargins
-	TempFolder      string
+	MediaInputs      []image.MediaInput
+	AudioPath        string
+	BGMusicPath      string
+	OutputPath       string
+	BGMusicVolume    float64
+	AudioMargins     config.AudioMargins
+	TempFolder       string
 	TargetDimensions *Dimensions
 }
 
@@ -63,25 +63,25 @@ func GetMediaDuration(filepath string) (float64, error) {
 		log.Printf("Using standard 5-second duration for image: %s", filepath)
 		return 5.0, nil
 	}
-	
+
 	cmd := exec.Command("ffprobe", "-v", "error", "-show_entries", "format=duration",
 		"-of", "default=noprint_wrappers=1:nokey=1", filepath)
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		return 0, fmt.Errorf("failed to get media duration for %s: %w", filepath, err)
 	}
-	
+
 	durationStr := strings.TrimSpace(string(output))
 	if durationStr == "" {
 		return 0, fmt.Errorf("ffprobe returned empty duration for %s", filepath)
 	}
-	
+
 	duration, err := strconv.ParseFloat(durationStr, 64)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse duration '%s': %w", durationStr, err)
 	}
-	
+
 	log.Printf("Media duration for %s: %.3f seconds", filepath, duration)
 	return duration, nil
 }
@@ -95,11 +95,11 @@ func CalculateTotalDuration(audioPath string, mediaInputs []image.MediaInput, ma
 			return 0, fmt.Errorf("failed to get audio duration: %w", err)
 		}
 		total := audioDuration + margins.Start + margins.End
-		log.Printf("Total duration (with audio): %.3f = %.3f + %.3f + %.3f", 
+		log.Printf("Total duration (with audio): %.3f = %.3f + %.3f + %.3f",
 			total, audioDuration, margins.Start, margins.End)
 		return total, nil
 	}
-	
+
 	// Without main audio: sum of all media durations
 	var totalDuration float64
 	for _, input := range mediaInputs {
@@ -109,12 +109,12 @@ func CalculateTotalDuration(audioPath string, mediaInputs []image.MediaInput, ma
 		}
 		totalDuration += duration
 	}
-	
+
 	// Ensure minimum 5 seconds
 	if totalDuration < 5.0 {
 		totalDuration = 5.0
 	}
-	
+
 	log.Printf("Total duration (without audio): %.3f seconds", totalDuration)
 	return totalDuration, nil
 }
@@ -122,17 +122,17 @@ func CalculateTotalDuration(audioPath string, mediaInputs []image.MediaInput, ma
 // CalculateMaxDimensions finds the maximum width and height from all inputs
 func CalculateMaxDimensions(mediaInputs []image.MediaInput) (Dimensions, error) {
 	var maxWidth, maxHeight int
-	
+
 	for _, input := range mediaInputs {
 		cmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0",
 			"-show_entries", "stream=width,height,rotation", "-of", "json", input.Path)
-		
+
 		output, err := cmd.Output()
 		if err != nil {
 			log.Printf("Warning: Failed to get dimensions for %s: %v", input.Path, err)
 			continue
 		}
-		
+
 		var data struct {
 			Streams []struct {
 				Width  int `json:"width"`
@@ -142,25 +142,25 @@ func CalculateMaxDimensions(mediaInputs []image.MediaInput) (Dimensions, error) 
 				} `json:"tags"`
 			} `json:"streams"`
 		}
-		
+
 		if err := json.Unmarshal(output, &data); err != nil {
 			log.Printf("Warning: Failed to parse dimensions for %s: %v", input.Path, err)
 			continue
 		}
-		
+
 		if len(data.Streams) == 0 {
 			continue
 		}
-		
+
 		stream := data.Streams[0]
 		width, height := stream.Width, stream.Height
-		
+
 		// Handle rotation
 		if stream.Tags.Rotate == "90" || stream.Tags.Rotate == "270" {
 			log.Printf("Detected %s degree rotation for %s", stream.Tags.Rotate, input.Path)
 			width, height = height, width
 		}
-		
+
 		if width > maxWidth {
 			maxWidth = width
 		}
@@ -168,12 +168,12 @@ func CalculateMaxDimensions(mediaInputs []image.MediaInput) (Dimensions, error) 
 			maxHeight = height
 		}
 	}
-	
+
 	// Default dimensions if no valid inputs found
 	if maxWidth == 0 || maxHeight == 0 {
 		maxWidth, maxHeight = 1920, 1080
 	}
-	
+
 	log.Printf("Calculated max dimensions: %dx%d", maxWidth, maxHeight)
 	return Dimensions{Width: maxWidth, Height: maxHeight}, nil
 }
@@ -182,24 +182,30 @@ func CalculateMaxDimensions(mediaInputs []image.MediaInput) (Dimensions, error) 
 func CreateVisualSequence(mediaInputs []image.MediaInput, totalDuration float64, tempFolder string, hasMainAudio bool, dimensions Dimensions) (string, string, error) {
 	tempVideoSeq := filepath.Join(tempFolder, "temp_video_sequence.mkv")
 	tempAudioSeq := filepath.Join(tempFolder, "temp_audio_sequence.wav")
-	
+
 	var videoFilters, audioFilters []string
 	var inputs []string
-	
+	var tempAudioEnsuredFiles []string // Track intermediate files for cleanup
+
 	for i, input := range mediaInputs {
 		// Ensure video has audio track
 		inputWithAudio, err := ensureVideoHasAudio(input.Path, tempFolder)
 		if err != nil {
 			return "", "", fmt.Errorf("failed to ensure audio for %s: %w", input.Path, err)
 		}
-		
+
+		// Track temp files for cleanup (only if a new file was created)
+		if inputWithAudio != input.Path {
+			tempAudioEnsuredFiles = append(tempAudioEnsuredFiles, inputWithAudio)
+		}
+
 		inputs = append(inputs, "-i", inputWithAudio)
-		
+
 		duration, err := GetMediaDuration(input.Path)
 		if err != nil {
 			return "", "", fmt.Errorf("failed to get duration for %s: %w", input.Path, err)
 		}
-		
+
 		var targetDuration float64
 		if hasMainAudio {
 			// For single media with main audio, use total duration for looping/cutting
@@ -233,7 +239,7 @@ func CreateVisualSequence(mediaInputs []image.MediaInput, totalDuration float64,
 				targetDuration = 5.0 // Standard image duration
 			}
 		}
-		
+
 		if image.IsImageFile(input.Path) {
 			videoFilters = append(videoFilters, fmt.Sprintf(
 				"[%d:v]loop=loop=-1:size=1:start=0,trim=duration=%.3f,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2,setpts=PTS-STARTPTS[v%d];",
@@ -259,43 +265,50 @@ func CreateVisualSequence(mediaInputs []image.MediaInput, totalDuration float64,
 			}
 		}
 	}
-	
+
 	// Concatenate video streams
 	var videoInputs []string
 	for i := range mediaInputs {
 		videoInputs = append(videoInputs, fmt.Sprintf("[v%d]", i))
 	}
 	videoFilters = append(videoFilters, fmt.Sprintf("%sconcat=n=%d:v=1:a=0[outv]", strings.Join(videoInputs, ""), len(mediaInputs)))
-	
+
 	// Concatenate audio streams
 	var audioInputs []string
 	for i := range mediaInputs {
 		audioInputs = append(audioInputs, fmt.Sprintf("[a%d]", i))
 	}
 	audioFilters = append(audioFilters, fmt.Sprintf("%sconcat=n=%d:v=0:a=1[outa]", strings.Join(audioInputs, ""), len(mediaInputs)))
-	
+
 	// Create video sequence
 	videoCmd := []string{"ffmpeg", "-y", "-hwaccel", "auto"}
 	videoCmd = append(videoCmd, inputs...)
 	videoCmd = append(videoCmd, "-filter_complex", strings.Join(videoFilters, ""),
 		"-map", "[outv]", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "0", tempVideoSeq)
-	
+
 	log.Printf("Creating video sequence: %s", strings.Join(videoCmd, " "))
 	if err := runFFmpegCommand(videoCmd); err != nil {
 		return "", "", fmt.Errorf("failed to create video sequence: %w", err)
 	}
-	
+
 	// Create audio sequence
 	audioCmd := []string{"ffmpeg", "-y"}
 	audioCmd = append(audioCmd, inputs...)
 	audioCmd = append(audioCmd, "-filter_complex", strings.Join(audioFilters, ""),
 		"-map", "[outa]", "-c:a", "pcm_s16le", tempAudioSeq)
-	
+
 	log.Printf("Creating audio sequence: %s", strings.Join(audioCmd, " "))
 	if err := runFFmpegCommand(audioCmd); err != nil {
 		return "", "", fmt.Errorf("failed to create audio sequence: %w", err)
 	}
-	
+
+	// Clean up intermediate audio_ensured_* files
+	for _, tempFile := range tempAudioEnsuredFiles {
+		if err := os.Remove(tempFile); err != nil {
+			log.Printf("Warning: failed to clean up temp file %s: %v", tempFile, err)
+		}
+	}
+
 	return tempVideoSeq, tempAudioSeq, nil
 }
 
@@ -304,7 +317,7 @@ func GenerateVideo(params VideoGenParams) error {
 	if err := fileutil.EnsureTempFolder(); err != nil {
 		return fmt.Errorf("failed to create temp folder: %w", err)
 	}
-	
+
 	// Determine dimensions
 	var dimensions Dimensions
 	if params.TargetDimensions != nil {
@@ -316,13 +329,13 @@ func GenerateVideo(params VideoGenParams) error {
 			return fmt.Errorf("failed to calculate dimensions: %w", err)
 		}
 	}
-	
+
 	// Calculate total duration
 	totalDuration, err := CalculateTotalDuration(params.AudioPath, params.MediaInputs, params.AudioMargins)
 	if err != nil {
 		return fmt.Errorf("failed to calculate total duration: %w", err)
 	}
-	
+
 	// Create visual sequence
 	visualSeq, audioSeq, err := CreateVisualSequence(params.MediaInputs, totalDuration, params.TempFolder, params.AudioPath != "", dimensions)
 	if err != nil {
@@ -330,35 +343,35 @@ func GenerateVideo(params VideoGenParams) error {
 	}
 	defer os.Remove(visualSeq)
 	defer os.Remove(audioSeq)
-	
+
 	// Build final ffmpeg command
 	var filterComplex []string
 	inputs := []string{"-i", visualSeq, "-i", audioSeq}
-	
+
 	if params.AudioPath != "" {
 		inputs = append(inputs, "-i", params.AudioPath)
 		filterComplex = append(filterComplex, fmt.Sprintf(
 			"[2:a]adelay=%d|%d,apad=pad_dur=%.3f[main_audio];",
 			int(params.AudioMargins.Start*1000), int(params.AudioMargins.Start*1000), params.AudioMargins.End))
 	}
-	
+
 	// Visual sequence should already be the correct duration
 	filterComplex = append(filterComplex, "[0:v]setpts=PTS-STARTPTS[trimmed_video];")
-	
+
 	// Add background music if specified
 	if params.BGMusicPath != "" {
 		inputs = append(inputs, "-i", params.BGMusicPath)
 		bgIndex := len(inputs)/2 - 1
 		filterComplex = append(filterComplex, fmt.Sprintf("[%d:a]aloop=-1:size=2e+09,volume=%.2f[bg_music];", bgIndex, params.BGMusicVolume))
 	}
-	
+
 	// Apply video effects
 	filterComplex = append(filterComplex, "[trimmed_video]fps=30,format=yuv420p")
 	if params.AudioPath != "" {
 		filterComplex = append(filterComplex, fmt.Sprintf(",fade=t=out:st=%.3f:d=%.3f", totalDuration-params.AudioMargins.End, params.AudioMargins.End))
 	}
 	filterComplex = append(filterComplex, "[faded_video];")
-	
+
 	// Mix audio streams
 	if params.AudioPath != "" && params.BGMusicPath != "" {
 		filterComplex = append(filterComplex, "[main_audio][bg_music]amix=inputs=2:duration=first:dropout_transition=2[final_audio];")
@@ -369,10 +382,10 @@ func GenerateVideo(params VideoGenParams) error {
 	} else {
 		filterComplex = append(filterComplex, "[1:a]acopy[final_audio];")
 	}
-	
+
 	// Apply audio fade out
 	filterComplex = append(filterComplex, fmt.Sprintf("[final_audio]afade=t=out:st=%.3f:d=%.3f[faded_audio];", totalDuration-params.AudioMargins.End, params.AudioMargins.End))
-	
+
 	// Build final command
 	cmd := []string{"ffmpeg", "-y"}
 	cmd = append(cmd, inputs...)
@@ -383,7 +396,7 @@ func GenerateVideo(params VideoGenParams) error {
 		"-movflags", "+faststart",
 		"-t", fmt.Sprintf("%.3f", totalDuration),
 		params.OutputPath)
-	
+
 	log.Printf("Generating final video: %s", strings.Join(cmd, " "))
 	return runFFmpegCommand(cmd)
 }
@@ -391,11 +404,11 @@ func GenerateVideo(params VideoGenParams) error {
 // ensureVideoHasAudio adds silent audio track to videos that don't have audio
 func ensureVideoHasAudio(inputPath, tempFolder string) (string, error) {
 	outputPath := filepath.Join(tempFolder, fmt.Sprintf("audio_ensured_%s", filepath.Base(inputPath)))
-	
+
 	// Check if video already has audio
 	cmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "a", "-count_packets",
 		"-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", inputPath)
-	
+
 	output, err := cmd.Output()
 	if err == nil {
 		if audioPackets, parseErr := strconv.Atoi(strings.TrimSpace(string(output))); parseErr == nil && audioPackets > 0 {
@@ -403,30 +416,30 @@ func ensureVideoHasAudio(inputPath, tempFolder string) (string, error) {
 			return inputPath, nil
 		}
 	}
-	
+
 	// Add silent audio track
 	addAudioCmd := []string{"ffmpeg", "-y", "-i", inputPath,
 		"-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
 		"-c:v", "copy", "-c:a", "aac", "-shortest", outputPath}
-	
+
 	log.Printf("Adding silent audio to video: %s", strings.Join(addAudioCmd, " "))
 	if err := runFFmpegCommand(addAudioCmd); err != nil {
 		return "", err
 	}
-	
+
 	return outputPath, nil
 }
 
 // runFFmpegCommand executes ffmpeg with proper error handling
 func runFFmpegCommand(cmd []string) error {
 	log.Printf("Running ffmpeg: %s", strings.Join(cmd, " "))
-	
+
 	execCmd := exec.Command(cmd[0], cmd[1:]...)
 	output, err := execCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("ffmpeg failed: %w\nOutput: %s", err, string(output))
 	}
-	
+
 	log.Println("ffmpeg command completed successfully")
 	return nil
 }
@@ -438,27 +451,27 @@ func ValidateVideo(outputPath string, expectedDuration float64, shouldHaveAudio 
 	if err != nil {
 		return fmt.Errorf("failed to get video duration: %w", err)
 	}
-	
+
 	if abs(actualDuration-expectedDuration) > 0.5 { // 0.5 second tolerance
 		return fmt.Errorf("duration mismatch: expected %.3f, got %.3f", expectedDuration, actualDuration)
 	}
-	
+
 	// Check audio if required
 	if shouldHaveAudio {
 		cmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "a", "-count_packets",
 			"-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", outputPath)
-		
+
 		output, err := cmd.Output()
 		if err != nil {
 			return fmt.Errorf("failed to check audio: %w", err)
 		}
-		
+
 		audioPackets, err := strconv.Atoi(strings.TrimSpace(string(output)))
 		if err != nil || audioPackets == 0 {
 			return fmt.Errorf("video should have audio but none found")
 		}
 	}
-	
+
 	log.Printf("Video validation passed: %s", outputPath)
 	return nil
 }

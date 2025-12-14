@@ -8,6 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 - **Build and run interactively**: `make run-mmmeld` or `./bin/mmmeld`
 - **Run with all defaults**: `./bin/mmmeld --autofill`
 - **Generate TTS standalone**: `./bin/tts --text "your text" --provider elevenlabs --voiceid WWr4C8ld745zI3BiA8n7`
+- **Generate image prompt from audio**: `./bin/prompt -file song.mp3 -title "Song Title"`
+- **With audio analysis**: `./bin/mmmeld -a song.mp3 --image generate --analyze-audio -ic "Caption" -isc "Subcaption"`
 
 ### Development Commands
 - **Build all binaries**: `make build` or `make`
@@ -29,13 +31,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 ### Project Structure
 - **cmd/mmmeld/**: Main video generator application
+- **cmd/prompt/**: Standalone audio-to-image-prompt tool
 - **cmd/tts/**: Standalone text-to-speech tool
 - **internal/config/**: Configuration and CLI argument parsing
 - **internal/audio/**: Audio processing utilities
 - **internal/video/**: Video generation engine (core logic)
-- **internal/image/**: Image processing and AI generation via DALL-E
+- **internal/image/**: Image processing and Ideogram v3 generation
+- **internal/genai/**: Gemini AI integration (audio analysis, image validation)
 - **internal/tts/**: Multi-provider text-to-speech integration
 - **internal/fileutil/**: File operations, downloads, and cleanup
+- **internal/ffmpeg/**: FFmpeg wrapper utilities
 
 ### Processing Flow
 1. **Config Parsing**: Parse CLI args and validate API keys
@@ -58,6 +63,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 export OPENAI_API_KEY="your-openai-key"
 export ELEVENLABS_API_KEY="your-elevenlabs-key" 
 export DEEPGRAM_API_KEY="your-deepgram-key"
+export GEMINI_API_KEY="your-gemini-key"
+export IDEOGRAM_API_KEY="your-ideogram-key"
 export MMMELD_DEBUG=1  # Enable verbose logging
 ```
 
@@ -111,9 +118,18 @@ Use test media files in `test_media/` directory:
 3. **DeepGram**: Fast processing
 
 ### Image Generation
-- **DALL-E 3**: Via OpenAI API
-- **1024x1024**: Default resolution
-- **Automatic enhancement**: AI-optimized prompts
+- **Ideogram v3**: Primary image generator
+- **Aspect ratios**: 16:9 (default), 9:16, 1:1, 4:3, 3:4, 3:2, 2:3
+- **Text overlay**: Caption and subcaption support
+- **Validation**: Gemini validates text rendering, retries on failure
+
+### Audio Analysis (Gemini)
+- **Model**: gemini-3-pro-preview
+- **Two-pass pipeline**:
+  1. Pass A: Audio → Structured JSON brief (genre, mood, visual elements)
+  2. Pass B: Brief → Optimized Ideogram prompt
+- **Style preferences**: photorealistic, cinematic, illustrated, abstract, minimalist
+- **AI cliché avoidance**: Built-in constraints against common AI image clichés
 
 ## Build and Deployment
 

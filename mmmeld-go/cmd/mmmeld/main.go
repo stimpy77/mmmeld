@@ -20,16 +20,16 @@ var stdinReader = bufio.NewReader(os.Stdin)
 func main() {
 	// Setup logging
 	config.SetupLogging()
-	
+
 	// Create and load configuration
 	cfg := config.New()
 	if err := cfg.LoadFromFlags(); err != nil {
 		log.Fatalf("Configuration error: %v", err)
 	}
-	
+
 	// Set API keys in environment
 	cfg.SetAPIKeys()
-	
+
 	// Create cleanup manager
 	cleanup := fileutil.NewCleanupManager()
 	defer func() {
@@ -39,12 +39,12 @@ func main() {
 			}
 		}
 	}()
-	
+
 	// Ensure temp folder exists
 	if err := fileutil.EnsureTempFolder(); err != nil {
 		log.Fatalf("Failed to create temp folder: %v", err)
 	}
-	
+
 	// Process inputs based on configuration
 	if err := processInputs(cfg, cleanup); err != nil {
 		log.Fatalf("Processing error: %v", err)
@@ -54,7 +54,7 @@ func main() {
 func processInputs(cfg *config.Config, cleanup *fileutil.CleanupManager) error {
 	var audioSource *audio.AudioSource
 	var err error
-	
+
 	// Handle audio processing
 	if cfg.Audio != "" {
 		log.Println("Processing audio input...")
@@ -70,7 +70,7 @@ func processInputs(cfg *config.Config, cleanup *fileutil.CleanupManager) error {
 			return fmt.Errorf("interactive audio input failed: %w", err)
 		}
 	}
-	
+
 	// Handle image/video processing
 	var mediaInputs []image.MediaInput
 	// Derive title/description from audio if available (used in both non-interactive and interactive flows)
@@ -82,7 +82,12 @@ func processInputs(cfg *config.Config, cleanup *fileutil.CleanupManager) error {
 	}
 	if cfg.Image != "" || cfg.AutoFill {
 		log.Println("Processing image/video inputs...")
-		mediaInputs, err = image.GetImageInputs(cfg, title, description, cleanup)
+		// Pass audio path for potential audio analysis
+		audioPath := ""
+		if audioSource != nil {
+			audioPath = audioSource.Path
+		}
+		mediaInputs, err = image.GetImageInputsWithAudio(cfg, title, description, audioPath, cleanup)
 		if err != nil {
 			return fmt.Errorf("failed to process images: %w", err)
 		}
@@ -93,12 +98,12 @@ func processInputs(cfg *config.Config, cleanup *fileutil.CleanupManager) error {
 			return fmt.Errorf("interactive image input failed: %w", err)
 		}
 	}
-	
+
 	// Ensure we have at least some media input
 	if len(mediaInputs) == 0 {
 		return fmt.Errorf("no image or video inputs provided")
 	}
-	
+
 	// Handle background music
 	var bgMusicPath string
 	if cfg.BGMusic != "" {
@@ -109,7 +114,7 @@ func processInputs(cfg *config.Config, cleanup *fileutil.CleanupManager) error {
 		}
 		log.Printf("Background music processed: %s", bgMusicPath)
 	}
-	
+
 	// Determine output path
 	outputPath := cfg.Output
 	if outputPath == "" {
@@ -119,20 +124,20 @@ func processInputs(cfg *config.Config, cleanup *fileutil.CleanupManager) error {
 		}
 		outputPath = fileutil.GetDefaultOutputPath(audioPath)
 	}
-	
+
 	// Ensure output directory exists
 	outputDir := filepath.Dir(outputPath)
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
-	
+
 	// Generate video
 	log.Println("Generating video...")
 	audioPath := ""
 	if audioSource != nil {
 		audioPath = audioSource.Path
 	}
-	
+
 	params := video.VideoGenParams{
 		MediaInputs:   mediaInputs,
 		AudioPath:     audioPath,
@@ -142,11 +147,11 @@ func processInputs(cfg *config.Config, cleanup *fileutil.CleanupManager) error {
 		AudioMargins:  cfg.AudioMargins,
 		TempFolder:    config.TempAssetsFolder,
 	}
-	
+
 	if err := video.GenerateVideo(params); err != nil {
 		return fmt.Errorf("failed to generate video: %w", err)
 	}
-	
+
 	// Validate the output
 	expectedDuration, err := video.CalculateTotalDuration(audioPath, mediaInputs, cfg.AudioMargins)
 	if err != nil {
@@ -156,7 +161,7 @@ func processInputs(cfg *config.Config, cleanup *fileutil.CleanupManager) error {
 			log.Printf("Warning: Video validation failed: %v", err)
 		}
 	}
-	
+
 	fmt.Printf("Video generated successfully: %s\n", outputPath)
 	return nil
 }
@@ -196,9 +201,9 @@ func getAudioInteractive(cfg *config.Config, cleanup *fileutil.CleanupManager) (
 	if input == "" {
 		return nil, nil // No audio
 	}
-	
+
 	cfg.Audio = input
-	
+
 	if input == "generate" {
 		text := readMultiline("Enter the text you want to convert to speech (press Enter twice to finish):")
 		if strings.TrimSpace(text) == "" {
@@ -207,19 +212,19 @@ func getAudioInteractive(cfg *config.Config, cleanup *fileutil.CleanupManager) (
 			return nil, nil
 		}
 		cfg.Text = text
-		
+
 		voiceID := readLine(fmt.Sprintf("Enter voice ID (default: %s): ", cfg.VoiceID))
 		if voiceID != "" {
 			cfg.VoiceID = voiceID
 		}
 	}
-	
+
 	return audio.GetAudioSource(cfg, cleanup)
 }
 
 func getImagesInteractive(cfg *config.Config, cleanup *fileutil.CleanupManager, title, description string) ([]image.MediaInput, error) {
 	var results []image.MediaInput
-	
+
 	fmt.Println("Enter image/video sources (press Enter on empty line to finish):")
 	first := true
 	for {
@@ -262,7 +267,7 @@ func getImagesInteractive(cfg *config.Config, cleanup *fileutil.CleanupManager, 
 			break
 		}
 	}
-	
+
 	if len(results) == 0 {
 		// Python fallback: generate a default image when no inputs are provided interactively
 		prevImage := cfg.Image
@@ -277,6 +282,6 @@ func getImagesInteractive(cfg *config.Config, cleanup *fileutil.CleanupManager, 
 		}
 		results = append(results, items...)
 	}
-	
+
 	return results, nil
 }
