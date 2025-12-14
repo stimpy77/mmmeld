@@ -32,7 +32,7 @@ type ImageGenOptions struct {
 	Caption      string             // Expected caption text for validation
 	Subcaption   string             // Expected subcaption text for validation
 	AspectRatio  config.AspectRatio // Aspect ratio for generated image
-	MaxRetries   int                // Max retries for validation failures (default 6)
+	MaxRetries   int                // Max retries for validation failures (default 10)
 	ValidateText bool               // Whether to validate text rendering
 	AttemptNum   int                // Current attempt number for file naming (1-based)
 }
@@ -131,7 +131,7 @@ func GetImageInputsWithAudio(cfg *config.Config, title, description, audioPath s
 				Subcaption:   cfg.ImageSubcaption,
 				AspectRatio:  cfg.AspectRatio,
 				ValidateText: cfg.ImageCaption != "" || cfg.ImageSubcaption != "",
-				MaxRetries:   6,
+				MaxRetries:   10,
 			}
 
 			input, err := processImageInputWithOpts(inputPath, opts, description, cleanup)
@@ -164,7 +164,7 @@ func GetImageInputsWithAudio(cfg *config.Config, title, description, audioPath s
 			Subcaption:   cfg.ImageSubcaption,
 			AspectRatio:  cfg.AspectRatio,
 			ValidateText: cfg.ImageCaption != "" || cfg.ImageSubcaption != "",
-			MaxRetries:   6,
+			MaxRetries:   10,
 		}
 
 		input, err := generateImageWithValidation(opts, cleanup)
