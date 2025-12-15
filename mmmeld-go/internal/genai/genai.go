@@ -1491,7 +1491,7 @@ func validateImageAgainstPromptWithOpenAI(imagePath string, imageData []byte, mi
 			},
 		},
 		"max_tokens": 1000,
-	} 
+	}
 
 	jsonData, err := json.Marshal(requestBody)
 	if err != nil {
