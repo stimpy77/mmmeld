@@ -1470,23 +1470,15 @@ func validateImageAgainstPromptWithOpenAI(imagePath string, imageData []byte, mi
 	// Encode image to base64
 	imageBase64 := base64.StdEncoding.EncodeToString(imageData)
 
-	// Build OpenAI request with vision
+	// Build OpenAI Responses API request with vision content
 	requestBody := map[string]interface{}{
 		"model": "gpt-5.2-pro",
-		"messages": []map[string]interface{}{
+		"input": []map[string]interface{}{
 			{
 				"role": "user",
 				"content": []map[string]interface{}{
-					{
-						"type": "text",
-						"text": validationPrompt,
-					},
-					{
-						"type": "image_url",
-						"image_url": map[string]string{
-							"url": fmt.Sprintf("data:%s;base64,%s", mimeType, imageBase64),
-						},
-					},
+					{"type": "input_text", "text": validationPrompt},
+					{"type": "input_image", "image_url": fmt.Sprintf("data:%s;base64,%s", mimeType, imageBase64)},
 				},
 			},
 		},
@@ -1498,7 +1490,7 @@ func validateImageAgainstPromptWithOpenAI(imagePath string, imageData []byte, mi
 		return nil, fmt.Errorf("failed to marshal OpenAI request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", "https://api.openai.com/v1/responses", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenAI request: %w", err)
 	}
@@ -1518,23 +1510,38 @@ func validateImageAgainstPromptWithOpenAI(imagePath string, imageData []byte, mi
 		return nil, fmt.Errorf("OpenAI API error %d: %s", resp.StatusCode, string(body))
 	}
 
-	var chatResp struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
+	// Parse the Responses API format
+	var responsesResp struct {
+		Output []struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"output"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&responsesResp); err != nil {
 		return nil, fmt.Errorf("failed to decode OpenAI response: %w", err)
 	}
 
-	if len(chatResp.Choices) == 0 {
-		return nil, fmt.Errorf("no response from OpenAI")
+	// Extract first output_text
+	var responseText string
+	for _, output := range responsesResp.Output {
+		for _, content := range output.Content {
+			if content.Type == "output_text" || content.Type == "text" {
+				responseText = content.Text
+				break
+			}
+		}
+		if responseText != "" {
+			break
+		}
 	}
 
-	responseText := chatResp.Choices[0].Message.Content
+	if responseText == "" {
+		return nil, fmt.Errorf("no text response from OpenAI")
+	}
+
 	logWarning("Image validated via OpenAI fallback")
 	return parsePromptValidationResponse(responseText, expectedCaption, expectedSubcaption), nil
 }
@@ -1554,27 +1561,21 @@ func validateImageWithOpenAI(imagePath string, imageData []byte, mimeType, expec
 	// Encode image to base64
 	imageBase64 := base64.StdEncoding.EncodeToString(imageData)
 
-	// Build OpenAI request with vision
+	// Build OpenAI Responses API request with vision content
 	requestBody := map[string]interface{}{
 		"model": "gpt-5.2-pro",
-		"messages": []map[string]interface{}{
+		"input": []map[string]interface{}{
 			{
-				"role":    "system",
-				"content": systemPrompt,
+				"role": "system",
+				"content": []map[string]interface{}{
+					{"type": "input_text", "text": systemPrompt},
+				},
 			},
 			{
 				"role": "user",
 				"content": []map[string]interface{}{
-					{
-						"type": "text",
-						"text": validationPrompt,
-					},
-					{
-						"type": "image_url",
-						"image_url": map[string]string{
-							"url": fmt.Sprintf("data:%s;base64,%s", mimeType, imageBase64),
-						},
-					},
+					{"type": "input_text", "text": validationPrompt},
+					{"type": "input_image", "image_url": fmt.Sprintf("data:%s;base64,%s", mimeType, imageBase64)},
 				},
 			},
 		},
@@ -1586,7 +1587,7 @@ func validateImageWithOpenAI(imagePath string, imageData []byte, mimeType, expec
 		return nil, fmt.Errorf("failed to marshal OpenAI request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", "https://api.openai.com/v1/responses", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenAI request: %w", err)
 	}
@@ -1606,23 +1607,38 @@ func validateImageWithOpenAI(imagePath string, imageData []byte, mimeType, expec
 		return nil, fmt.Errorf("OpenAI API error %d: %s", resp.StatusCode, string(body))
 	}
 
-	var chatResp struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
+	// Parse the Responses API format
+	var responsesResp struct {
+		Output []struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"output"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&responsesResp); err != nil {
 		return nil, fmt.Errorf("failed to decode OpenAI response: %w", err)
 	}
 
-	if len(chatResp.Choices) == 0 {
-		return nil, fmt.Errorf("no response from OpenAI")
+	// Extract first output_text
+	var responseText string
+	for _, output := range responsesResp.Output {
+		for _, content := range output.Content {
+			if content.Type == "output_text" || content.Type == "text" {
+				responseText = content.Text
+				break
+			}
+		}
+		if responseText != "" {
+			break
+		}
 	}
 
-	responseText := chatResp.Choices[0].Message.Content
+	if responseText == "" {
+		return nil, fmt.Errorf("no text response from OpenAI")
+	}
+
 	logWarning("Image validated via OpenAI fallback")
 	return parseJSONValidationResponse(responseText, expectedCaption, expectedSubcaption)
 }
