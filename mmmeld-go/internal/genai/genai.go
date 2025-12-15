@@ -1482,7 +1482,7 @@ func validateImageAgainstPromptWithOpenAI(imagePath string, imageData []byte, mi
 				},
 			},
 		},
-		"max_tokens": 1000,
+		"max_output_tokens": 1000,
 	}
 
 	jsonData, err := json.Marshal(requestBody)
@@ -1579,7 +1579,7 @@ func validateImageWithOpenAI(imagePath string, imageData []byte, mimeType, expec
 				},
 			},
 		},
-		"max_tokens": 1000,
+		"max_output_tokens": 1000,
 	}
 
 	jsonData, err := json.Marshal(requestBody)
