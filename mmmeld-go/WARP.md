@@ -156,7 +156,7 @@ All implemented in `internal/tts/tts.go`:
 3. **DeepGram**: Fast processing, requires `DEEPGRAM_API_KEY`
 
 ### Image Generation
-- **DALL-E 3**: Via OpenAI API with prompt enhancement using GPT-3.5-turbo
+- **DALL-E 3**: Via OpenAI API with prompt enhancement using gpt-5.2-pro
 - Automatic retry on content policy violations with safer prompts
 - 1024x1024 resolution with quality optimization
 
