@@ -5,6 +5,7 @@ package genai
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,6 +24,19 @@ const (
 	// Use gemini-3-pro-preview for best quality analysis
 	DefaultModel = "models/gemini-3-pro-preview"
 )
+
+// ANSI color codes for terminal output
+const (
+	colorReset  = "\033[0m"
+	colorYellow = "\033[33m"
+	colorRed    = "\033[31m"
+)
+
+// logWarning logs a warning message in yellow
+func logWarning(format string, v ...interface{}) {
+	msg := fmt.Sprintf(format, v...)
+	log.Printf("%sWarning: %s%s", colorYellow, msg, colorReset)
+}
 
 // StylePreference represents the preferred visual style for generated prompts
 type StylePreference string
@@ -128,7 +142,7 @@ func (c *Client) GenerateImagePrompt(audioPath string, opts PromptOptions) (*Pro
 	// Ensure cleanup of the uploaded file
 	defer func() {
 		if _, err := c.client.Files.Delete(c.ctx, uploadResult.Name, nil); err != nil {
-			log.Printf("Warning: Failed to delete remote file: %v", err)
+			logWarning("Failed to delete remote file: %v", err)
 		}
 	}()
 
@@ -174,6 +188,11 @@ func (c *Client) GenerateImagePrompt(audioPath string, opts PromptOptions) (*Pro
 
 	brief, briefJSON, err := c.generateAudioBrief(uploadResult.URI, mimeType, opts)
 	if err != nil {
+		// Check if this is a quota error - if so, fall back to OpenAI
+		if strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "quota") || strings.Contains(err.Error(), "RESOURCE_EXHAUSTED") {
+			logWarning("Gemini quota exceeded, falling back to OpenAI for prompt generation")
+			return generatePromptWithOpenAIFallback(audioPath, opts)
+		}
 		return nil, fmt.Errorf("failed to generate audio brief: %w", err)
 	}
 
@@ -206,7 +225,7 @@ func (c *Client) GenerateImagePrompt(audioPath string, opts PromptOptions) (*Pro
 	promptText, err = reviewPromptWithOpenAI(promptText, brief, opts)
 	if err != nil {
 		// Non-fatal - if second opinion fails, we still have the original prompt
-		log.Printf("Warning: Second opinion review failed: %v", err)
+		logWarning("Second opinion review failed: %v", err)
 	}
 
 	return &PromptResult{
@@ -249,7 +268,8 @@ RULES:
 - era coherence: Visual objects/wardrobe/architecture/props MUST match the implied era/culture of the genre + production. If the music feels modern (e.g., contemporary worship/CCM, modern pop, EDM), avoid ancient/medieval/biblical props unless the user notes or lyrics explicitly demand it.
 - era examples: Modern worship/CCM → keep materials and context contemporary without defaulting to a literal "worship stage" scene. Use present-day spaces/materials (modern architecture lines, contemporary typography cues, current-day clothing silhouettes, everyday objects) expressed through the song’s metaphor. Avoid explicitly ancient/biblical props like "ancient tent", "oil lantern", "scroll", "parchment", "stone tablets" unless explicitly requested.
 - avoid: 3 specific visual clichés to avoid for THIS song's themes (e.g., if about struggle: "cracked earth, chains, storm clouds"; if about hope: "sunrise, dove, rainbow"; if about love: "heart shapes, red roses, intertwined hands")
-- Do NOT use: lone figure, silhouette against sky, god rays, oversized moon, portal/doorway, solitary tree, person at cliff edge, floating in space, hands reaching toward light`},
+- OVERUSED BIBLICAL IMAGERY (use ONLY if lyrics/title explicitly demand it): wheat field, grain, harvest table, communion table, wooden table setting, bread and wine still life, shepherd with sheep, olive branch, vineyard, dove, lions, crown of thorns, empty tomb, cross silhouette. These are valid but exhausted - find fresh visual metaphors unless the specific text absolutely requires them.
+- Do NOT use: lone figure, silhouette against sky, god rays, oversized moon, portal/doorway, solitary tree, person at cliff edge, floating in space, hands reaching toward light, minimalist object on white/cream background, floating object with no environment`},
 		},
 	}
 
@@ -428,11 +448,172 @@ type SecondOpinionResult struct {
 
 // reviewPromptWithOpenAI gets a second opinion from OpenAI on the generated prompt
 // It checks if the prompt makes sense given the audio analysis and original request
+// generatePromptWithOpenAIFallback creates an image prompt using OpenAI when Gemini is unavailable
+// This skips audio analysis and works only with the available metadata (title, notes, caption, subcaption)
+func generatePromptWithOpenAIFallback(audioPath string, opts PromptOptions) (*PromptResult, error) {
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("OPENAI_API_KEY not set - cannot fall back to OpenAI")
+	}
+
+	if !opts.Quiet {
+		log.Printf("Generating image prompt with OpenAI (no audio analysis)...")
+	}
+
+	// Build the prompt for OpenAI
+	systemPrompt := `You are an Ideogram prompt writer creating image prompts for music cover art.
+You do NOT have access to the audio file - work only with the provided metadata.
+
+OUTPUT FORMAT:
+- Single paragraph, no line breaks
+- No quotes around the output
+- No preamble like "Here is the prompt:"
+- Do not use these words: epic, ethereal, mystical, awe-inspiring, breathtaking
+
+STRUCTURE (include in this order):
+1. Text overlay (if provided) - EXACT format required
+2. Subject (one primary element based on title/notes)
+3. Scene/environment (one location)
+4. Composition (camera angle, framing - avoid dead center)
+5. Lighting (specific, motivated)
+6. Color palette (infer from mood/genre)
+7. Style/texture details
+
+CONSTRAINTS:
+- ONE focal point, ONE secondary detail only
+- Prefer 2-4 interacting elements over lone subjects
+- Use specific mundane details (worn paint, dented brass) over cosmic scale
+- Reserve negative space behind any text
+- Typography: clean, bold, high contrast, no curved/warped text
+- Do NOT use: lone figure, silhouette against sky, god rays, oversized moon, portal/doorway, solitary tree, person at cliff edge, floating in space, hands reaching toward light, minimalist object on white/cream background
+- AVOID overused biblical imagery unless explicitly requested: wheat field, harvest table, communion table, bread and wine, shepherd with sheep, olive branch, vineyard, dove, lions, crown of thorns, empty tomb, cross silhouette`
+
+	var userPrompt strings.Builder
+	userPrompt.WriteString("Create an Ideogram prompt for music cover art.\n\n")
+
+	// Add text overlay requirements first
+	if opts.Caption != "" && opts.Subcaption != "" {
+		userPrompt.WriteString(fmt.Sprintf(`TEXT OVERLAY (START PROMPT WITH THIS EXACT FORMAT):
+Title/caption "%s", subcaption "%s", is prominently displayed.
+
+`, opts.Caption, opts.Subcaption))
+	} else if opts.Caption != "" {
+		userPrompt.WriteString(fmt.Sprintf(`TEXT OVERLAY (START PROMPT WITH THIS EXACT FORMAT):
+Title/caption "%s" is prominently displayed.
+
+`, opts.Caption))
+	} else if opts.Subcaption != "" {
+		userPrompt.WriteString(fmt.Sprintf(`TEXT OVERLAY (START PROMPT WITH THIS EXACT FORMAT):
+Text "%s" is prominently displayed.
+
+`, opts.Subcaption))
+	}
+
+	userPrompt.WriteString(fmt.Sprintf(`AVAILABLE CONTEXT:
+- Title: %s
+- User notes/direction: %s
+- Style preference: %s
+
+Based on this context, create a compelling visual that would work as cover art for this music. Infer the mood, genre, and appropriate imagery from the title and notes.`,
+		opts.Title,
+		opts.Notes,
+		opts.StylePreference,
+	))
+
+	combinedPrompt := fmt.Sprintf("%s\n\n---\n\n%s", systemPrompt, userPrompt.String())
+
+	// Make the OpenAI API call
+	requestBody := map[string]interface{}{
+		"model": "gpt-5.2-pro",
+		"input": []map[string]interface{}{
+			{
+				"role": "user",
+				"content": []map[string]string{
+					{"type": "input_text", "text": combinedPrompt},
+				},
+			},
+		},
+		"text": map[string]interface{}{
+			"format": map[string]string{"type": "text"},
+		},
+	}
+
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal OpenAI request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", "https://api.openai.com/v1/responses", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OpenAI request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("OpenAI request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("OpenAI API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse the responses API format
+	var responsesResp struct {
+		Output []struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"output"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&responsesResp); err != nil {
+		return nil, fmt.Errorf("failed to decode OpenAI response: %w", err)
+	}
+
+	// Extract text from the response
+	var promptText string
+	for _, output := range responsesResp.Output {
+		for _, content := range output.Content {
+			if content.Type == "output_text" {
+				promptText = content.Text
+				break
+			}
+		}
+		if promptText != "" {
+			break
+		}
+	}
+
+	if promptText == "" {
+		return nil, fmt.Errorf("no text response from OpenAI")
+	}
+
+	promptText = cleanPromptOutput(promptText)
+
+	logWarning("Image prompt generated via OpenAI fallback (no audio analysis performed)")
+
+	return &PromptResult{
+		Prompt:        promptText,
+		Title:         opts.Title,
+		AudioFile:     audioPath,
+		Style:         opts.StylePreference,
+		Timestamp:     time.Now(),
+		AudioAnalysis: "", // No audio analysis in fallback mode
+	}, nil
+}
+
 func reviewPromptWithOpenAI(prompt string, brief *AudioBrief, opts PromptOptions) (string, error) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		// If no OpenAI key, skip second opinion and return original prompt
-		log.Printf("Warning: OPENAI_API_KEY not set, skipping second-opinion review")
+		logWarning("OPENAI_API_KEY not set, skipping second-opinion review")
 		return prompt, nil
 	}
 
@@ -545,13 +726,13 @@ Review this prompt. Does it make intuitive sense for this audio/request, or is i
 
 	jsonData, err := json.Marshal(requestBody)
 	if err != nil {
-		log.Printf("Warning: Failed to marshal OpenAI request, using original prompt: %v", err)
+		logWarning("Failed to marshal OpenAI request, using original prompt: %v", err)
 		return prompt, nil
 	}
 
 	req, err := http.NewRequest("POST", "https://api.openai.com/v1/responses", bytes.NewBuffer(jsonData))
 	if err != nil {
-		log.Printf("Warning: Failed to create OpenAI request, using original prompt: %v", err)
+		logWarning("Failed to create OpenAI request, using original prompt: %v", err)
 		return prompt, nil
 	}
 
@@ -561,14 +742,14 @@ Review this prompt. Does it make intuitive sense for this audio/request, or is i
 	client := &http.Client{Timeout: 120 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("Warning: OpenAI request failed, using original prompt: %v", err)
+		logWarning("OpenAI request failed, using original prompt: %v", err)
 		return prompt, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		log.Printf("Warning: OpenAI API error %d: %s, using original prompt", resp.StatusCode, string(body))
+		logWarning("OpenAI API error %d: %s, using original prompt", resp.StatusCode, string(body))
 		return prompt, nil
 	}
 
@@ -583,7 +764,7 @@ Review this prompt. Does it make intuitive sense for this audio/request, or is i
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&responsesResp); err != nil {
-		log.Printf("Warning: Failed to decode OpenAI response, using original prompt: %v", err)
+		logWarning("Failed to decode OpenAI response, using original prompt: %v", err)
 		return prompt, nil
 	}
 
@@ -602,7 +783,7 @@ Review this prompt. Does it make intuitive sense for this audio/request, or is i
 	}
 
 	if responseText == "" {
-		log.Printf("Warning: No text response from OpenAI, using original prompt")
+		logWarning("No text response from OpenAI, using original prompt")
 		return prompt, nil
 	}
 
@@ -610,7 +791,7 @@ Review this prompt. Does it make intuitive sense for this audio/request, or is i
 	responseText = cleanJSONResponse(responseText)
 	var result SecondOpinionResult
 	if err := json.Unmarshal([]byte(responseText), &result); err != nil {
-		log.Printf("Warning: Failed to parse OpenAI review JSON, using original prompt: %v", err)
+		logWarning("Failed to parse OpenAI review JSON, using original prompt: %v", err)
 		return prompt, nil
 	}
 
@@ -621,7 +802,7 @@ Review this prompt. Does it make intuitive sense for this audio/request, or is i
 
 	// Prompt was flagged - use the improved version
 	if result.ImprovedPrompt == "" {
-		log.Printf("Warning: Prompt flagged but no improvement provided, using original")
+		logWarning("Prompt flagged but no improvement provided, using original")
 		return prompt, nil
 	}
 
@@ -794,6 +975,11 @@ func (c *Client) ValidateImageAgainstPrompt(imagePath, prompt, expectedCaption, 
 
 	resp, err := c.client.Models.GenerateContent(c.ctx, DefaultModel, contents, nil)
 	if err != nil {
+		// Check if this is a quota error - if so, fall back to OpenAI
+		if strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "quota") || strings.Contains(err.Error(), "RESOURCE_EXHAUSTED") {
+			logWarning("Gemini quota exceeded, falling back to OpenAI for prompt validation")
+			return validateImageAgainstPromptWithOpenAI(imagePath, imageData, mimeType, prompt, expectedCaption, expectedSubcaption)
+		}
 		return nil, fmt.Errorf("failed to validate image: %w", err)
 	}
 
@@ -817,11 +1003,20 @@ VALIDATION CRITERIA:
 2. OVERALL QUALITY: Is this a well-executed image that serves its purpose?
    - Professional quality, clear subject, good composition
    - Answer: GOOD or POOR
+
+3. INSTRUMENT CHECK (CRITICAL):
+   - List ALL musical instruments visible in the image
+   - Compare against instruments mentioned in the prompt
+   - If ANY instrument is shown that was NOT mentioned in the prompt, this is a FAIL
+   - Common hallucinated instruments to watch for: trumpet, saxophone, violin, acoustic guitar (when electric was specified), drums, microphone, piano
+   - If the prompt mentions "rhythm guitar" or "electric guitar", an acoustic guitar is WRONG
+   - If NO instruments were mentioned in the prompt, ANY visible instrument is a FAIL
+   - Answer: INSTRUMENTS_CORRECT or INSTRUMENTS_WRONG
 `, originalPrompt)
 
 	if expectedCaption != "" || expectedSubcaption != "" {
 		prompt += `
-3. TEXT RENDERING:`
+4. TEXT RENDERING:`
 
 		if expectedCaption != "" {
 			prompt += fmt.Sprintf(`
@@ -841,7 +1036,7 @@ VALIDATION CRITERIA:
 
 		prompt += `
 
-4. TEXT CASING:
+5. TEXT CASING:
    - Acceptable casing: exact match, ALL CAPS, or all lowercase
    - Mixed case that differs from expected is NOT acceptable
    - For example: "BETTER THAN MY BREATH" or "better than my breath" are OK for "Better Than My Breath"
@@ -853,7 +1048,9 @@ VALIDATION CRITERIA:
 
 RESPOND IN THIS EXACT FORMAT:
 PROMPT_MATCH: MATCH or NO_MATCH
-QUALITY: GOOD or POOR`
+QUALITY: GOOD or POOR
+INSTRUMENTS_STATUS: INSTRUMENTS_CORRECT or INSTRUMENTS_WRONG
+INSTRUMENTS_SEEN: [list any instruments visible in image, or "none"]`
 
 	if expectedCaption != "" {
 		prompt += `
@@ -897,6 +1094,30 @@ func parsePromptValidationResponse(response, expectedCaption, expectedSubcaption
 		if strings.HasPrefix(upperLine, "PROMPT_MATCH:") {
 			if strings.Contains(upperLine, "NO_MATCH") {
 				result.PromptMatch = false
+			}
+		} else if strings.HasPrefix(upperLine, "INSTRUMENTS_STATUS:") {
+			if strings.Contains(upperLine, "WRONG") {
+				result.PromptMatch = false
+				result.Issues = append(result.Issues, "Image contains instruments not specified in prompt")
+			}
+		} else if strings.HasPrefix(upperLine, "INSTRUMENTS_SEEN:") {
+			instruments := strings.TrimPrefix(line, "INSTRUMENTS_SEEN:")
+			instruments = strings.TrimPrefix(instruments, "Instruments_seen:")
+			instruments = strings.TrimSpace(instruments)
+			if instruments != "" && !strings.EqualFold(instruments, "none") && !strings.EqualFold(instruments, "[none]") {
+				// Check if this was already flagged as wrong
+				for _, issue := range result.Issues {
+					if strings.Contains(issue, "instruments") {
+						// Update the issue with specific instruments
+						for i, iss := range result.Issues {
+							if strings.Contains(iss, "instruments not specified") {
+								result.Issues[i] = fmt.Sprintf("Hallucinated instruments in image: %s", instruments)
+								break
+							}
+						}
+						break
+					}
+				}
 			}
 		} else if strings.HasPrefix(upperLine, "CAPTION_STATUS:") || strings.HasPrefix(upperLine, "SUBCAPTION_STATUS:") {
 			if strings.Contains(upperLine, "MISSING") || strings.Contains(upperLine, "DISTORTED") {
@@ -952,13 +1173,15 @@ func parsePromptValidationResponse(response, expectedCaption, expectedSubcaption
 
 // TextValidationJSON is the expected JSON output structure for text validation
 type TextValidationJSON struct {
-	CaptionOK      bool    `json:"caption_ok"`
-	SubcaptionOK   bool    `json:"subcaption_ok"`
-	CaptionSeen    string  `json:"caption_seen"`
-	SubcaptionSeen string  `json:"subcaption_seen"`
-	Score          float64 `json:"score"`
-	Verdict        string  `json:"verdict"`
-	Reason         string  `json:"reason"`
+	CaptionOK        bool     `json:"caption_ok"`
+	SubcaptionOK     bool     `json:"subcaption_ok"`
+	CaptionSeen      string   `json:"caption_seen"`
+	SubcaptionSeen   string   `json:"subcaption_seen"`
+	Score            float64  `json:"score"`
+	Verdict          string   `json:"verdict"`
+	Reason           string   `json:"reason"`
+	InstrumentsSeen  []string `json:"instruments_seen"`
+	InstrumentsWrong bool     `json:"instruments_wrong"`
 }
 
 // ValidateImage uses Gemini to check if the generated image has the expected text rendered correctly
@@ -1005,6 +1228,11 @@ func (c *Client) ValidateImage(imagePath string, expectedCaption, expectedSubcap
 
 	resp, err := c.client.Models.GenerateContent(c.ctx, DefaultModel, contents, config)
 	if err != nil {
+		// Check if this is a quota error - if so, fall back to OpenAI
+		if strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "quota") || strings.Contains(err.Error(), "RESOURCE_EXHAUSTED") {
+			logWarning("Gemini quota exceeded, falling back to OpenAI for image validation")
+			return validateImageWithOpenAI(imagePath, imageData, mimeType, expectedCaption, expectedSubcaption)
+		}
 		return nil, fmt.Errorf("failed to validate image: %w", err)
 	}
 
@@ -1075,6 +1303,14 @@ AI GENERATION ARTIFACTS TO CHECK FOR (FAIL if present):
 - Text that appears warped, melted, or partially formed
 - Unnatural lighting inconsistencies (shadows going wrong directions)
 - Background elements that make no physical sense
+- HALLUCINATED INSTRUMENTS: Any musical instrument (guitar, trumpet, saxophone, violin, drums, piano, etc.) that appears in the image but wasn't explicitly requested. AI generators commonly add random instruments to music-related images.
+
+INSTRUMENT VALIDATION RULES:
+- instruments_seen: List ALL musical instruments visible in the image (guitar, trumpet, piano, drums, violin, saxophone, microphone, etc.)
+- instruments_wrong: true if ANY instrument is visible that was NOT in the expected list above
+- If expected instruments is "NONE", then ANY visible instrument means instruments_wrong=true
+- Be specific: distinguish "electric guitar" from "acoustic guitar" - they are different instruments
+- Common hallucinations to watch for: trumpet, saxophone, violin appearing in rock/pop images; acoustic guitar when electric was specified
 
 RULES:`
 
@@ -1110,7 +1346,7 @@ func parseJSONValidationResponse(response, expectedCaption, expectedSubcaption s
 	var validation TextValidationJSON
 	if err := json.Unmarshal([]byte(response), &validation); err != nil {
 		// Fallback to old parsing method if JSON fails
-		log.Printf("Warning: Failed to parse validation JSON, using fallback: %v", err)
+		logWarning("Failed to parse validation JSON, using fallback: %v", err)
 		return parseValidationResponseFallback(response, expectedCaption, expectedSubcaption), nil
 	}
 
@@ -1120,6 +1356,13 @@ func parseJSONValidationResponse(response, expectedCaption, expectedSubcaption s
 		result.Score = 1.0
 	} else if result.Score > 10.0 {
 		result.Score = 10.0
+	}
+
+	// Check for hallucinated instruments
+	if validation.InstrumentsWrong && len(validation.InstrumentsSeen) > 0 {
+		result.IsAcceptable = false
+		result.Issues = append(result.Issues, fmt.Sprintf("Hallucinated instruments in image: %s", strings.Join(validation.InstrumentsSeen, ", ")))
+		result.Suggestions = append(result.Suggestions, "Regenerate without musical instruments or specify correct instruments in prompt")
 	}
 
 	// Populate result from JSON
@@ -1177,6 +1420,13 @@ func parseValidationResponseFallback(response, expectedCaption, expectedSubcapti
 
 	upperResponse := strings.ToUpper(response)
 
+	// Check for hallucinated instruments
+	if strings.Contains(upperResponse, "INSTRUMENTS_WRONG") && strings.Contains(upperResponse, "TRUE") {
+		result.IsAcceptable = false
+		result.Score = 4.0
+		result.Issues = append(result.Issues, "Hallucinated instruments detected in image")
+	}
+
 	// Simple keyword detection as fallback
 	if expectedCaption != "" {
 		if strings.Contains(upperResponse, "CAPTION") && (strings.Contains(upperResponse, "NO") || strings.Contains(upperResponse, "MISSING") || strings.Contains(upperResponse, "FAIL")) {
@@ -1204,6 +1454,177 @@ func parseValidationResponseFallback(response, expectedCaption, expectedSubcapti
 	}
 
 	return result
+}
+
+// validateImageAgainstPromptWithOpenAI validates an image against its prompt using OpenAI when Gemini is unavailable
+func validateImageAgainstPromptWithOpenAI(imagePath string, imageData []byte, mimeType, prompt, expectedCaption, expectedSubcaption string) (*PromptValidationResult, error) {
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("OPENAI_API_KEY not set - cannot fall back to OpenAI for validation")
+	}
+
+	log.Printf("Validating image against prompt with OpenAI...")
+
+	validationPrompt := buildPromptValidationPrompt(prompt, expectedCaption, expectedSubcaption)
+
+	// Encode image to base64
+	imageBase64 := base64.StdEncoding.EncodeToString(imageData)
+
+	// Build OpenAI request with vision
+	requestBody := map[string]interface{}{
+		"model": "gpt-5.2-pro",
+		"messages": []map[string]interface{}{
+			{
+				"role": "user",
+				"content": []map[string]interface{}{
+					{
+						"type": "text",
+						"text": validationPrompt,
+					},
+					{
+						"type": "image_url",
+						"image_url": map[string]string{
+							"url": fmt.Sprintf("data:%s;base64,%s", mimeType, imageBase64),
+						},
+					},
+				},
+			},
+		},
+		"max_tokens": 1000,
+	} 
+
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal OpenAI request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OpenAI request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("OpenAI request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("OpenAI API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var chatResp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
+		return nil, fmt.Errorf("failed to decode OpenAI response: %w", err)
+	}
+
+	if len(chatResp.Choices) == 0 {
+		return nil, fmt.Errorf("no response from OpenAI")
+	}
+
+	responseText := chatResp.Choices[0].Message.Content
+	logWarning("Image validated via OpenAI fallback")
+	return parsePromptValidationResponse(responseText, expectedCaption, expectedSubcaption), nil
+}
+
+// validateImageWithOpenAI validates image text rendering using OpenAI when Gemini is unavailable
+func validateImageWithOpenAI(imagePath string, imageData []byte, mimeType, expectedCaption, expectedSubcaption string) (*ImageValidationResult, error) {
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("OPENAI_API_KEY not set - cannot fall back to OpenAI for validation")
+	}
+
+	log.Printf("Validating image text with OpenAI...")
+
+	validationPrompt := buildJSONValidationPrompt(expectedCaption, expectedSubcaption)
+	systemPrompt := "You are a strict QA reviewer for AI-generated images. Output ONLY valid JSON, no other text."
+
+	// Encode image to base64
+	imageBase64 := base64.StdEncoding.EncodeToString(imageData)
+
+	// Build OpenAI request with vision
+	requestBody := map[string]interface{}{
+		"model": "gpt-5.2-pro",
+		"messages": []map[string]interface{}{
+			{
+				"role":    "system",
+				"content": systemPrompt,
+			},
+			{
+				"role": "user",
+				"content": []map[string]interface{}{
+					{
+						"type": "text",
+						"text": validationPrompt,
+					},
+					{
+						"type": "image_url",
+						"image_url": map[string]string{
+							"url": fmt.Sprintf("data:%s;base64,%s", mimeType, imageBase64),
+						},
+					},
+				},
+			},
+		},
+		"max_tokens": 1000,
+	}
+
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal OpenAI request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OpenAI request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("OpenAI request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("OpenAI API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var chatResp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
+		return nil, fmt.Errorf("failed to decode OpenAI response: %w", err)
+	}
+
+	if len(chatResp.Choices) == 0 {
+		return nil, fmt.Errorf("no response from OpenAI")
+	}
+
+	responseText := chatResp.Choices[0].Message.Content
+	logWarning("Image validated via OpenAI fallback")
+	return parseJSONValidationResponse(responseText, expectedCaption, expectedSubcaption)
 }
 
 func getImageMimeType(path string) string {
