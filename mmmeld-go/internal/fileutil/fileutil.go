@@ -59,6 +59,25 @@ func EnsureTempFolder() error {
 	return os.MkdirAll(config.TempAssetsFolder, 0755)
 }
 
+// RemoveTempFolderIfEmpty removes the temp assets folder if it's empty
+func RemoveTempFolderIfEmpty() error {
+	entries, err := os.ReadDir(config.TempAssetsFolder)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	if len(entries) == 0 {
+		if err := os.Remove(config.TempAssetsFolder); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // SanitizeFilename cleans a filename for safe filesystem use
 func SanitizeFilename(filename string) string {
 	// Remove or replace invalid characters

@@ -14,6 +14,7 @@ const (
 	TempAssetsFolder     = "temp_assets"
 	MaxFilenameLength    = 100
 	ElevenLabsVoiceID    = "WWr4C8ld745zI3BiA8n7"
+	ElevenLabsModelID    = "eleven_v3"
 	OpenAIVoiceID        = "onyx"
 	DeepgramVoiceID      = "aura-zeus-en"
 	DefaultBGMusicVolume = 0.2
