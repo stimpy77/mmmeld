@@ -617,6 +617,8 @@ func reviewPromptWithOpenAI(prompt string, brief *AudioBrief, opts PromptOptions
 		return prompt, nil
 	}
 
+	requiredTextOverlayPrefix := buildRequiredTextOverlayPrefix(opts)
+
 	// Build the review request
 	briefSummary := fmt.Sprintf(`Audio Analysis:
 - Genre: %s
@@ -664,6 +666,12 @@ EXAMPLES OF PROBLEMS TO CATCH:
 - Visual metaphors that are too obscure or would require explanation
 - Anything that could be unintentionally humorous, inappropriate, or offensive
 
+TEXT OVERLAY REQUIREMENTS (NON-NEGOTIABLE):
+- If Caption text and/or Subcaption text are provided in the Original Request context, they are REQUIRED constraints.
+- Do NOT remove, weaken, contradict, or "refuse" the text overlay instruction in the generated prompt.
+- If the user notes say things like "no text inside the artwork", interpret that as "do not introduce any additional text beyond the required Caption/Subcaption"; you must still keep the required overlays.
+- If you produce an improved_prompt, it MUST start with the required Caption/Subcaption overlay sentence verbatim (character-for-character) as the first characters of the prompt. You may ONLY append additional guidance AFTER that sentence; do not rewrite it or move it later in the paragraph. (Why: The image generator with its limitations will deprioritize it to the point of not including it at all.)
+
 AI IMAGE GENERATION LIMITATIONS - REJECT PROMPTS THAT INCLUDE:
 - Fabric/cloth being torn, ripped, shattered, or pierced (AI renders this with ugly glass-like fracture effects)
 - Objects penetrating or breaking through soft materials (curtains, drapes, veils, etc.)
@@ -698,6 +706,9 @@ If not approved, provide an improved prompt that fixes the issues while preservi
 
 %s
 
+Required text overlay prefix (if non-empty, improved_prompt MUST start with this verbatim):
+%s
+
 Generated Image Prompt:
 %s
 
@@ -705,6 +716,7 @@ Review this prompt. Does it make intuitive sense for this audio/request, or is i
 		systemPrompt,
 		briefSummary,
 		requestContext,
+		requiredTextOverlayPrefix,
 		prompt,
 	)
 
@@ -807,7 +819,47 @@ Review this prompt. Does it make intuitive sense for this audio/request, or is i
 	}
 
 	log.Printf("⚡ Second opinion: Prompt improved - %s", result.Reason)
-	return cleanPromptOutput(result.ImprovedPrompt), nil
+	improved := cleanPromptOutput(result.ImprovedPrompt)
+	if requiredTextOverlayPrefix != "" {
+		improved = enforceRequiredTextOverlayPrefix(improved, requiredTextOverlayPrefix)
+	}
+	return improved, nil
+}
+
+func buildRequiredTextOverlayPrefix(opts PromptOptions) string {
+	if opts.Caption != "" && opts.Subcaption != "" {
+		return fmt.Sprintf("Title/caption \"%s\", subcaption \"%s\", is prominently displayed.", opts.Caption, opts.Subcaption)
+	}
+	if opts.Caption != "" {
+		return fmt.Sprintf("Title/caption \"%s\" is prominently displayed.", opts.Caption)
+	}
+	if opts.Subcaption != "" {
+		return fmt.Sprintf("Text \"%s\" is prominently displayed.", opts.Subcaption)
+	}
+	return ""
+}
+
+func enforceRequiredTextOverlayPrefix(prompt, requiredPrefix string) string {
+	prompt = strings.TrimSpace(prompt)
+	requiredPrefix = strings.TrimSpace(requiredPrefix)
+	if requiredPrefix == "" {
+		return prompt
+	}
+	if strings.HasPrefix(prompt, requiredPrefix) {
+		return prompt
+	}
+
+	// If the required prefix exists elsewhere, remove it so we can re-add it at the top.
+	if idx := strings.Index(prompt, requiredPrefix); idx >= 0 {
+		before := strings.TrimSpace(prompt[:idx])
+		after := strings.TrimSpace(prompt[idx+len(requiredPrefix):])
+		prompt = strings.TrimSpace(strings.Join([]string{before, after}, " "))
+	}
+
+	if prompt == "" {
+		return requiredPrefix
+	}
+	return strings.TrimSpace(requiredPrefix + " " + prompt)
 }
 
 func cleanPromptOutput(s string) string {
@@ -839,15 +891,9 @@ func cleanPromptOutput(s string) string {
 func cleanJSONResponse(s string) string {
 	s = strings.TrimSpace(s)
 	// Remove markdown code blocks if present
-	if strings.HasPrefix(s, "```json") {
-		s = strings.TrimPrefix(s, "```json")
-	}
-	if strings.HasPrefix(s, "```") {
-		s = strings.TrimPrefix(s, "```")
-	}
-	if strings.HasSuffix(s, "```") {
-		s = strings.TrimSuffix(s, "```")
-	}
+	s = strings.TrimPrefix(s, "```json")
+	s = strings.TrimPrefix(s, "```")
+	s = strings.TrimSuffix(s, "```")
 	return strings.TrimSpace(s)
 }
 

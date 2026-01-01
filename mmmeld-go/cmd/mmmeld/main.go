@@ -152,6 +152,14 @@ func processInputs(cfg *config.Config, cleanup *fileutil.CleanupManager) error {
 		return fmt.Errorf("failed to generate video: %w", err)
 	}
 
+	if cfg.Cleanup {
+		for _, mi := range mediaInputs {
+			if mi.IsGenerated {
+				cleanup.Add(mi.Path)
+			}
+		}
+	}
+
 	// Validate the output
 	expectedDuration, err := video.CalculateTotalDuration(audioPath, mediaInputs, cfg.AudioMargins)
 	if err != nil {

@@ -1,6 +1,8 @@
 package fileutil
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -10,10 +12,16 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"mmmeld/internal/config"
 )
+
+var tempAssetRunNonce = func() string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%d:%d", os.Getpid(), time.Now().UnixNano())))
+	return hex.EncodeToString(sum[:])[:8]
+}()
 
 // CleanupManager handles temporary file cleanup
 type CleanupManager struct {
@@ -78,6 +86,33 @@ func RemoveTempFolderIfEmpty() error {
 	return nil
 }
 
+func tempAssetPrefixForOutputPath(outputPath string) string {
+	if outputPath == "" {
+		return ""
+	}
+
+	abs, err := filepath.Abs(outputPath)
+	if err != nil {
+		abs = outputPath
+	}
+
+	sum := sha256.Sum256([]byte(abs))
+	return hex.EncodeToString(sum[:])[:12]
+}
+
+func TempAssetPath(tempFolder, plannedOutputPath, filename string) string {
+	if tempFolder == "" {
+		tempFolder = config.TempAssetsFolder
+	}
+
+	prefix := tempAssetPrefixForOutputPath(plannedOutputPath)
+	if prefix == "" {
+		prefix = fmt.Sprintf("t%d", time.Now().UnixMilli())
+	}
+
+	return filepath.Join(tempFolder, fmt.Sprintf("%s_%s_%s", prefix, tempAssetRunNonce, filename))
+}
+
 // SanitizeFilename cleans a filename for safe filesystem use
 func SanitizeFilename(filename string) string {
 	// Remove or replace invalid characters
@@ -137,7 +172,8 @@ func DownloadYouTubeAudio(url string, cleanup *CleanupManager) (string, error) {
 		return "", fmt.Errorf("failed to create temp folder: %w", err)
 	}
 
-	outputTemplate := filepath.Join(config.TempAssetsFolder, "%(title)s.%(ext)s")
+	runPrefix := tempAssetRunNonce
+	outputTemplate := filepath.Join(config.TempAssetsFolder, fmt.Sprintf("%s_%%(title)s.%%(ext)s", runPrefix))
 
 	cmd := exec.Command("yt-dlp",
 		"--format", "bestaudio/best",
@@ -175,7 +211,7 @@ func DownloadYouTubeAudio(url string, cleanup *CleanupManager) (string, error) {
 
 	if downloadedFile == "" {
 		// Fallback: look for any .mp3 file in temp folder
-		files, err := filepath.Glob(filepath.Join(config.TempAssetsFolder, "*.mp3"))
+		files, err := filepath.Glob(filepath.Join(config.TempAssetsFolder, fmt.Sprintf("%s_*.mp3", runPrefix)))
 		if err != nil || len(files) == 0 {
 			return "", fmt.Errorf("could not find downloaded audio file")
 		}
@@ -194,7 +230,8 @@ func DownloadYouTubeVideo(url string, cleanup *CleanupManager) (string, error) {
 		return "", fmt.Errorf("failed to create temp folder: %w", err)
 	}
 
-	outputTemplate := filepath.Join(config.TempAssetsFolder, "%(title)s.%(ext)s")
+	runPrefix := tempAssetRunNonce
+	outputTemplate := filepath.Join(config.TempAssetsFolder, fmt.Sprintf("%s_%%(title)s.%%(ext)s", runPrefix))
 
 	cmd := exec.Command("yt-dlp",
 		"--format", "best[ext=mp4]/best",
@@ -228,7 +265,11 @@ func DownloadYouTubeVideo(url string, cleanup *CleanupManager) (string, error) {
 
 	if downloadedFile == "" {
 		// Fallback: look for video files in temp folder
-		patterns := []string{"*.mp4", "*.webm", "*.mkv"}
+		patterns := []string{
+			fmt.Sprintf("%s_*.mp4", runPrefix),
+			fmt.Sprintf("%s_*.webm", runPrefix),
+			fmt.Sprintf("%s_*.mkv", runPrefix),
+		}
 		for _, pattern := range patterns {
 			files, err := filepath.Glob(filepath.Join(config.TempAssetsFolder, pattern))
 			if err == nil && len(files) > 0 {
@@ -281,7 +322,7 @@ func DownloadImage(url string, cleanup *CleanupManager) (string, error) {
 		}
 	}
 
-	filename := fmt.Sprintf("downloaded_image_%d%s", len(cleanup.files), ext)
+	filename := fmt.Sprintf("downloaded_image_%d%s", time.Now().UnixNano(), ext)
 	filepath := filepath.Join(config.TempAssetsFolder, filename)
 
 	file, err := os.Create(filepath)

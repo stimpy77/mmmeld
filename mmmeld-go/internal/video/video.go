@@ -179,9 +179,9 @@ func CalculateMaxDimensions(mediaInputs []image.MediaInput) (Dimensions, error) 
 }
 
 // CreateVisualSequence creates video and audio sequences from media inputs
-func CreateVisualSequence(mediaInputs []image.MediaInput, totalDuration float64, tempFolder string, hasMainAudio bool, dimensions Dimensions) (string, string, error) {
-	tempVideoSeq := filepath.Join(tempFolder, "temp_video_sequence.mkv")
-	tempAudioSeq := filepath.Join(tempFolder, "temp_audio_sequence.wav")
+func CreateVisualSequence(mediaInputs []image.MediaInput, totalDuration float64, tempFolder string, hasMainAudio bool, dimensions Dimensions, plannedOutputPath string) (string, string, error) {
+	tempVideoSeq := fileutil.TempAssetPath(tempFolder, plannedOutputPath, "temp_video_sequence.mkv")
+	tempAudioSeq := fileutil.TempAssetPath(tempFolder, plannedOutputPath, "temp_audio_sequence.wav")
 
 	var videoFilters, audioFilters []string
 	var inputs []string
@@ -189,7 +189,7 @@ func CreateVisualSequence(mediaInputs []image.MediaInput, totalDuration float64,
 
 	for i, input := range mediaInputs {
 		// Ensure video has audio track
-		inputWithAudio, err := ensureVideoHasAudio(input.Path, tempFolder)
+		inputWithAudio, err := ensureVideoHasAudio(input.Path, tempFolder, plannedOutputPath)
 		if err != nil {
 			return "", "", fmt.Errorf("failed to ensure audio for %s: %w", input.Path, err)
 		}
@@ -337,7 +337,7 @@ func GenerateVideo(params VideoGenParams) error {
 	}
 
 	// Create visual sequence
-	visualSeq, audioSeq, err := CreateVisualSequence(params.MediaInputs, totalDuration, params.TempFolder, params.AudioPath != "", dimensions)
+	visualSeq, audioSeq, err := CreateVisualSequence(params.MediaInputs, totalDuration, params.TempFolder, params.AudioPath != "", dimensions, params.OutputPath)
 	if err != nil {
 		return fmt.Errorf("failed to create visual sequence: %w", err)
 	}
@@ -402,8 +402,8 @@ func GenerateVideo(params VideoGenParams) error {
 }
 
 // ensureVideoHasAudio adds silent audio track to videos that don't have audio
-func ensureVideoHasAudio(inputPath, tempFolder string) (string, error) {
-	outputPath := filepath.Join(tempFolder, fmt.Sprintf("audio_ensured_%s", filepath.Base(inputPath)))
+func ensureVideoHasAudio(inputPath, tempFolder, plannedOutputPath string) (string, error) {
+	outputPath := fileutil.TempAssetPath(tempFolder, plannedOutputPath, fmt.Sprintf("audio_ensured_%s", filepath.Base(inputPath)))
 
 	// Check if video already has audio
 	cmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "a", "-count_packets",

@@ -264,6 +264,10 @@ func generateImageWithValidation(opts ImageGenOptions, cleanup *fileutil.Cleanup
 		return nil, fmt.Errorf("failed to create temp folder: %w", err)
 	}
 
+	if !opts.ValidateText || (opts.Caption == "" && opts.Subcaption == "") {
+		log.Printf("Note: Image text validation is disabled (no image-caption/image-subcaption provided). Generated images may not contain any rendered text.")
+	}
+
 	maxRetries := opts.MaxRetries
 	if maxRetries <= 0 {
 		maxRetries = 10
@@ -478,8 +482,14 @@ func generateIdeogramImageWithOpts(opts ImageGenOptions, cleanup *fileutil.Clean
 
 	// When using style_preset, style_type must be AUTO or GENERAL (API constraint)
 	styleType := opts.StyleType
+	userProvidedStyleType := styleType != ""
+	if styleType == "" && (opts.Caption != "" || opts.Subcaption != "") {
+		styleType = "DESIGN"
+	}
 	if opts.StylePreset != "" && styleType != "" && styleType != "AUTO" && styleType != "GENERAL" {
-		log.Printf("Note: style_preset requires AUTO or GENERAL style_type, overriding %s -> GENERAL", styleType)
+		if userProvidedStyleType {
+			log.Printf("Note: style_preset requires AUTO or GENERAL style_type, overriding %s -> GENERAL", styleType)
+		}
 		styleType = "GENERAL"
 	}
 
